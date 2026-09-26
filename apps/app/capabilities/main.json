@@ -1,0 +1,13 @@
+{
+	"identifier": "main",
+	"description": "Local NCreate window only; signin has no native IPC",
+	"windows": [
+		"main"
+	],
+	"permissions": [
+		"core:default",
+		"autostart:allow-is-enabled",
+		"autostart:allow-enable",
+		"autostart:allow-disable"
+	]
+}

@@ -7,3 +7,6 @@ target/
 verification/
 *.log
 .DS_Store
+apps/app/gen/
+apps/app/icons/android/
+apps/app/icons/ios/

@@ -1,0 +1,15 @@
+{
+	"name": "ncreate-launcher",
+	"version": "0.1.0",
+	"private": true,
+	"license": "GPL-3.0-only",
+	"packageManager": "pnpm@10.30.3",
+	"scripts": {
+		"app:dev": "pnpm --filter @ncreate/app dev",
+		"app:build": "pnpm --filter @ncreate/app build",
+		"prepr:frontend:app": "pnpm --filter @ncreate/app-frontend check",
+		"typecheck": "pnpm --filter @ncreate/app-frontend typecheck",
+		"lint": "pnpm --filter @ncreate/app-frontend lint",
+		"build": "pnpm --filter @ncreate/app-frontend build"
+	}
+}

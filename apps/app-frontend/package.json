@@ -1,0 +1,31 @@
+{
+	"name": "@ncreate/app-frontend",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"dev": "vite",
+		"build": "vue-tsc --noEmit && vite build",
+		"typecheck": "vue-tsc --noEmit",
+		"lint": "eslint src && prettier --check src",
+		"check": "vue-tsc --noEmit && eslint src && prettier --check src",
+		"fix": "eslint src --fix && prettier --write src"
+	},
+	"dependencies": {
+		"vue": "^3.5.30",
+		"vue-router": "^4.6.4",
+		"@tauri-apps/api": "^2.11.1",
+		"@tauri-apps/plugin-autostart": "^2.5.1",
+		"lucide-vue-next": "^0.468.0"
+	},
+	"devDependencies": {
+		"vite": "^8.0.0",
+		"@vitejs/plugin-vue": "^6.0.3",
+		"typescript": "^5.9.3",
+		"vue-tsc": "^3.2.6",
+		"eslint": "^9.39.4",
+		"eslint-plugin-vue": "^10.8.0",
+		"typescript-eslint": "^8.57.1",
+		"prettier": "^3.8.1"
+	}
+}
