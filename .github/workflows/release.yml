@@ -1,0 +1,123 @@
+name: Desktop release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            bundles: appimage,deb
+          - os: windows-latest
+            bundles: nsis
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      CARGO_INCREMENTAL: '0'
+      CARGO_TERM_COLOR: always
+      APPIMAGE_EXTRACT_AND_RUN: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Check release tag matches app version
+        shell: bash
+        run: |
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          import { execFileSync } from 'node:child_process';
+          const tag = process.env.GITHUB_REF_NAME;
+          if (!/^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(tag)) throw new Error('Use a semantic version tag such as v0.1.0');
+          const expected = tag.slice(1);
+          const files = ['package.json', 'apps/app/package.json', 'apps/app-frontend/package.json', 'apps/app/tauri.conf.json'];
+          for (const file of files) {
+            const { version } = JSON.parse(fs.readFileSync(file, 'utf8'));
+            if (version !== expected) throw new Error(`${file}: version ${version} does not match ${tag}`);
+          }
+          const metadata = JSON.parse(execFileSync('cargo', ['metadata', '--format-version', '1', '--no-deps', '--locked'], { encoding: 'utf8' }));
+          for (const pkg of metadata.packages.filter(pkg => metadata.workspace_members.includes(pkg.id))) {
+            if (pkg.version !== expected) throw new Error(`${pkg.manifest_path}: version ${pkg.version} does not match ${tag}`);
+          }
+          JS
+      - name: Install Linux desktop libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y build-essential pkg-config libssl-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf libfuse2 xdg-utils
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm prepr:frontend:app
+      - run: pnpm build
+      - run: cargo fmt --all --check
+      - run: cargo check --locked --workspace --all-targets
+      - run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      - run: cargo test --locked --workspace
+      - name: Build production installers
+        run: pnpm app:build --bundles ${{ matrix.bundles }}
+      - name: Stage named release artifacts
+        shell: bash
+        run: |
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          import path from 'node:path';
+          const version = process.env.GITHUB_REF_NAME.slice(1);
+          fs.mkdirSync('release-assets', { recursive: true });
+          const formats = process.platform === 'win32'
+            ? [['nsis', '.exe', `NCreate-Launcher-Setup-${version}.exe`]]
+            : [['appimage', '.AppImage', `NCreate-Launcher-${version}.AppImage`], ['deb', '.deb', `NCreate-Launcher-${version}-amd64.deb`]];
+          for (const [folder, extension, output] of formats) {
+            const dir = path.join('target', 'release', 'bundle', folder);
+            const files = fs.readdirSync(dir).filter(file => file.endsWith(extension));
+            if (files.length !== 1) throw new Error(`Expected one ${extension} artifact, found ${files.length}`);
+            fs.copyFileSync(path.join(dir, files[0]), path.join('release-assets', output));
+          }
+          JS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ runner.os }}
+          path: release-assets/*
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    needs: build
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: release-assets
+          merge-multiple: true
+      - name: Include corresponding GPL source and checksums
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          git archive --format=tar.gz --prefix="ncreate-launcher-${RELEASE_TAG}/" --output="release-assets/NCreate-Launcher-${RELEASE_TAG}-source.tar.gz" HEAD
+          cd release-assets
+          sha256sum * > SHA256SUMS
+      - name: Publish complete release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$RELEASE_TAG" release-assets/* --verify-tag --title "NCreate Launcher ${RELEASE_TAG}" --generate-notes --notes "Windows x64 NSIS, Linux x64 AppImage and Debian package. Corresponding GPLv3 source and SHA256SUMS are attached. Automatic updater is disabled. Installers are not code signed."
