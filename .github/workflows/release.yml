@@ -2,7 +2,7 @@ name: Desktop release
 
 on:
   push:
-    tags: ['v*']
+    tags: ["v*"]
 
 permissions:
   contents: read
@@ -24,15 +24,15 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     env:
-      CARGO_INCREMENTAL: '0'
+      CARGO_INCREMENTAL: "0"
       CARGO_TERM_COLOR: always
-      APPIMAGE_EXTRACT_AND_RUN: '1'
+      APPIMAGE_EXTRACT_AND_RUN: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: "22"
           cache: pnpm
       - uses: dtolnay/rust-toolchain@stable
         with:
