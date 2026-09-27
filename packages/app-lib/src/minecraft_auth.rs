@@ -2,7 +2,6 @@
 //! Copyright remains with upstream contributors; GPL-3.0-only. Changes: isolated vault
 //! persistence, no global launcher state, token-safe tracing and metadata-only public API.
 use crate::Error;
-use crate::HTTP_CLIENT;
 use base64::Engine;
 use base64::prelude::{BASE64_STANDARD, BASE64_URL_SAFE_NO_PAD};
 use chrono::{DateTime, Duration, Utc};
@@ -24,6 +23,7 @@ use std::sync::Arc;
 use std::time::Instant;
 use url::Url;
 use uuid::Uuid;
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 #[derive(Debug, Clone, Copy)]
 pub enum MinecraftAuthStep {
@@ -38,6 +38,35 @@ pub enum MinecraftAuthStep {
 	MinecraftProfile,
 }
 
+/// Serde errors may include response string values; expose only location metadata.
+pub struct RedactedJsonError {
+	line: usize,
+	column: usize,
+}
+impl From<serde_json::Error> for RedactedJsonError {
+	fn from(error: serde_json::Error) -> Self {
+		Self {
+			line: error.line(),
+			column: error.column(),
+		}
+	}
+}
+impl std::fmt::Display for RedactedJsonError {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		write!(
+			f,
+			"invalid authentication JSON at line {}, column {}",
+			self.line, self.column
+		)
+	}
+}
+impl std::fmt::Debug for RedactedJsonError {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		std::fmt::Display::fmt(self, f)
+	}
+}
+impl std::error::Error for RedactedJsonError {}
+
 #[derive(thiserror::Error, Debug)]
 pub enum MinecraftAuthenticationError {
 	#[error("Error reading public key during generation")]
@@ -48,7 +77,7 @@ pub enum MinecraftAuthenticationError {
 	SerializeBody {
 		step: MinecraftAuthStep,
 		#[source]
-		source: serde_json::Error,
+		source: RedactedJsonError,
 	},
 	#[error(
 		"Failed to deserialize response to JSON during step {step:?}: {source}. Status Code: {status_code}"
@@ -57,7 +86,7 @@ pub enum MinecraftAuthenticationError {
 		step: MinecraftAuthStep,
 		raw: String,
 		#[source]
-		source: serde_json::Error,
+		source: RedactedJsonError,
 		status_code: StatusCode,
 	},
 	#[error("Request failed during step {step:?}: {source}")]
@@ -73,6 +102,10 @@ pub enum MinecraftAuthenticationError {
 	},
 	#[error("Error reading XBOX Session ID header")]
 	NoSessionId,
+	#[error("Minecraft profile is invalid")]
+	InvalidProfile,
+	#[error("authentication token expiry is invalid")]
+	InvalidExpiry,
 	#[error("Error reading user hash")]
 	NoUserHash,
 }
@@ -88,6 +121,7 @@ pub struct MinecraftLoginFlow {
 	pub auth_request_uri: String,
 	pair: DeviceTokenPair,
 	state: String,
+	created: Instant,
 }
 
 #[tracing::instrument(skip_all)]
@@ -106,6 +140,7 @@ pub(crate) async fn login_begin() -> crate::Result<MinecraftLoginFlow> {
 				auth_request_uri: redirect_uri.value.msa_oauth_redirect,
 				pair,
 				state,
+				created: Instant::now(),
 			});
 		}
 		Err(err) => return Err(Error::from(err)),
@@ -117,6 +152,9 @@ pub(crate) async fn login_finish(
 	code: &str,
 	flow: MinecraftLoginFlow,
 ) -> crate::Result<Credentials> {
+	if flow.created.elapsed() > std::time::Duration::from_secs(600) {
+		return Err(Error::OtherError("Microsoft login flow expired".into()));
+	}
 	let pair = flow.pair;
 
 	let oauth_token = oauth_token(code, &flow.verifier).await?;
@@ -144,7 +182,7 @@ pub(crate) async fn login_finish(
 		offline_profile: MinecraftProfile::default(),
 		access_token: minecraft_token.access_token,
 		refresh_token: oauth_token.value.refresh_token,
-		expires: oauth_token.date + Duration::seconds(oauth_token.value.expires_in as i64),
+		expires: expiration(oauth_token.date, oauth_token.value.expires_in)?,
 		active: true,
 	};
 
@@ -154,16 +192,12 @@ pub(crate) async fn login_finish(
 	// object, as otherwise continued usage of it will skip the profile cache due to
 	// the dummy UUID
 	let online_profile = minecraft_profile(&credentials.access_token).await?;
-	credentials.offline_profile = MinecraftProfile {
-		id: online_profile.id,
-		name: online_profile.name.clone(),
-		..credentials.offline_profile
-	};
+	credentials.offline_profile = online_profile;
 
 	Ok(credentials)
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
 pub(crate) struct Credentials {
 	/// The offline profile of the user these credentials are for.
 	///
@@ -171,10 +205,13 @@ pub(crate) struct Credentials {
 	/// never changed. A potentially stale username may be available, but no other data
 	/// such as skins or capes is available.
 	#[serde(rename = "profile")]
+	#[zeroize(skip)]
 	pub offline_profile: MinecraftProfile,
 	pub access_token: String,
 	pub refresh_token: String,
+	#[zeroize(skip)]
 	pub expires: DateTime<Utc>,
+	#[zeroize(skip)]
 	pub active: bool,
 }
 
@@ -197,7 +234,7 @@ impl Credentials {
 		let minecraft = minecraft_token(xbox.value).await?;
 		self.access_token = minecraft.access_token;
 		self.refresh_token = oauth.value.refresh_token;
-		self.expires = oauth.date + Duration::seconds(oauth.value.expires_in as i64);
+		self.expires = expiration(oauth.date, oauth.value.expires_in)?;
 		Ok(())
 	}
 	pub(crate) async fn profile(&self) -> crate::Result<MinecraftProfile> {
@@ -230,28 +267,52 @@ impl MinecraftLoginFlow {
 		if url.scheme() != "https"
 			|| url.host_str() != Some("login.live.com")
 			|| url.path() != "/oauth20_desktop.srf"
+			|| url.port_or_known_default() != Some(443)
+			|| !url.username().is_empty()
+			|| url.password().is_some()
 		{
 			return Ok(None);
 		}
-		let state = url
-			.query_pairs()
-			.find(|(name, _)| name == "state")
-			.map(|(_, value)| value.into_owned());
-		if state.as_deref() != Some(self.state.as_str()) {
+		if self.created.elapsed() > std::time::Duration::from_secs(600) {
+			return Err(Error::OtherError("Microsoft OAuth flow expired".into()));
+		}
+		if url.fragment().is_some() {
 			return Err(Error::OtherError(
-				"Microsoft OAuth callback state is invalid".to_owned(),
+				"Microsoft OAuth callback is invalid".into(),
+			));
+		}
+		let states: Vec<_> = url
+			.query_pairs()
+			.filter(|(name, _)| name == "state")
+			.collect();
+		if states.len() != 1 || states[0].1 != self.state {
+			return Err(Error::OtherError(
+				"Microsoft OAuth callback state is invalid".into(),
 			));
 		}
 		if url.query_pairs().any(|(name, _)| name == "error") {
 			return Err(Error::OtherError(
-				"Microsoft sign-in was cancelled or rejected".to_owned(),
+				"Microsoft sign-in was cancelled or rejected".into(),
 			));
 		}
-		Ok(url
+		let codes: Vec<_> = url
 			.query_pairs()
-			.find(|(name, _)| name == "code")
-			.map(|(_, value)| value.into_owned()))
+			.filter(|(name, _)| name == "code")
+			.collect();
+		if codes.len() != 1 || codes[0].1.is_empty() {
+			return Err(Error::OtherError(
+				"Microsoft OAuth callback code is invalid".into(),
+			));
+		}
+		Ok(Some(codes[0].1.to_string()))
 	}
+}
+fn expiration(date: DateTime<Utc>, seconds: u64) -> crate::Result<DateTime<Utc>> {
+	if !(1..=604800).contains(&seconds) {
+		return Err(MinecraftAuthenticationError::InvalidExpiry.into());
+	}
+	date.checked_add_signed(Duration::seconds(seconds as i64))
+		.ok_or_else(|| MinecraftAuthenticationError::InvalidExpiry.into())
 }
 fn safe_error_response(body: &str) -> String {
 	match serde_json::from_str::<OAuthErrorResponse>(body) {
@@ -273,7 +334,7 @@ pub struct RequestWithDate<T> {
 }
 
 // flow steps
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone)]
 #[serde(rename_all = "PascalCase")]
 pub struct DeviceToken {
 	pub issue_instant: DateTime<Utc>,
@@ -405,8 +466,7 @@ async fn oauth_token(
 	query.insert("scope", REQUESTED_SCOPE);
 
 	let res = auth_retry(|| {
-		HTTP_CLIENT
-			.post("https://login.live.com/oauth20_token.srf")
+		crate::transport::post("https://login.live.com/oauth20_token.srf")
 			.header("Accept", "application/json")
 			.form(&query)
 			.send()
@@ -435,7 +495,7 @@ async fn oauth_token(
 
 	let body = serde_json::from_str(&text).map_err(|source| {
 		MinecraftAuthenticationError::DeserializeResponse {
-			source,
+			source: source.into(),
 			raw: safe_error_response(&text),
 			step: MinecraftAuthStep::GetOAuthToken,
 			status_code: status,
@@ -460,8 +520,7 @@ async fn oauth_refresh(
 	query.insert("scope", REQUESTED_SCOPE);
 
 	let res = auth_retry(|| {
-		HTTP_CLIENT
-			.post("https://login.live.com/oauth20_token.srf")
+		crate::transport::post("https://login.live.com/oauth20_token.srf")
 			.header("Accept", "application/json")
 			.form(&query)
 			.send()
@@ -490,7 +549,7 @@ async fn oauth_refresh(
 
 	let body = serde_json::from_str(&text).map_err(|source| {
 		MinecraftAuthenticationError::DeserializeResponse {
-			source,
+			source: source.into(),
 			raw: safe_error_response(&text),
 			step: MinecraftAuthStep::RefreshOAuthToken,
 			status_code: status,
@@ -503,7 +562,7 @@ async fn oauth_refresh(
 	})
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize)]
 #[serde(rename_all = "PascalCase")]
 struct SisuAuthorize {
 	// pub authorization_token: DeviceToken,
@@ -612,8 +671,7 @@ async fn minecraft_token(
 	let token = token.token;
 
 	let res = auth_retry(|| {
-		HTTP_CLIENT
-			.post("https://api.minecraftservices.com/launcher/login")
+		crate::transport::post("https://api.minecraftservices.com/launcher/login")
 			.header("Accept", "application/json")
 			.header("User-Agent", MINECRAFT_SERVICES_USER_AGENT)
 			.json(&json!({
@@ -643,14 +701,18 @@ async fn minecraft_token(
 			step: MinecraftAuthStep::MinecraftToken,
 		})?;
 
-	serde_json::from_str(&text).map_err(|source| {
+	let token: MinecraftToken = serde_json::from_str(&text).map_err(|source| {
 		MinecraftAuthenticationError::DeserializeResponse {
-			source,
+			source: source.into(),
 			raw: safe_error_response(&text),
 			step: MinecraftAuthStep::MinecraftToken,
 			status_code: status,
 		}
-	})
+	})?;
+	if token.access_token.is_empty() {
+		return Err(MinecraftAuthenticationError::InvalidProfile);
+	}
+	Ok(token)
 }
 
 #[derive(Deserialize, Serialize, Debug, Copy, Clone, PartialEq, Eq)]
@@ -801,8 +863,7 @@ impl MinecraftProfile {
 #[tracing::instrument(skip_all)]
 async fn minecraft_profile(token: &str) -> Result<MinecraftProfile, MinecraftAuthenticationError> {
 	let res = auth_retry(|| {
-		HTTP_CLIENT
-			.get("https://api.minecraftservices.com/minecraft/profile")
+		crate::transport::get("https://api.minecraftservices.com/minecraft/profile")
 			.header("Accept", "application/json")
 			.header("User-Agent", MINECRAFT_SERVICES_USER_AGENT)
 			.bearer_auth(token)
@@ -834,12 +895,21 @@ async fn minecraft_profile(token: &str) -> Result<MinecraftProfile, MinecraftAut
 
 	let mut profile = serde_json::from_str::<MinecraftProfile>(&text).map_err(|source| {
 		MinecraftAuthenticationError::DeserializeResponse {
-			source,
+			source: source.into(),
 			raw: safe_error_response(&text),
 			step: MinecraftAuthStep::MinecraftProfile,
 			status_code: status,
 		}
 	})?;
+	if profile.id.is_nil()
+		|| !(3..=16).contains(&profile.name.len())
+		|| !profile
+			.name
+			.bytes()
+			.all(|b| b.is_ascii_alphanumeric() || b == b'_')
+	{
+		return Err(MinecraftAuthenticationError::InvalidProfile);
+	}
 	profile.fetch_time = Some(Instant::now());
 
 	Ok(profile)
@@ -854,15 +924,14 @@ async fn minecraft_entitlements(
 	token: &str,
 ) -> Result<MinecraftEntitlements, MinecraftAuthenticationError> {
 	let res = auth_retry(|| {
-		HTTP_CLIENT
-			.get(format!(
-				"https://api.minecraftservices.com/entitlements/license?requestId={}",
-				Uuid::new_v4()
-			))
-			.header("Accept", "application/json")
-			.header("User-Agent", MINECRAFT_SERVICES_USER_AGENT)
-			.bearer_auth(token)
-			.send()
+		crate::transport::get(format!(
+			"https://api.minecraftservices.com/entitlements/license?requestId={}",
+			Uuid::new_v4()
+		))
+		.header("Accept", "application/json")
+		.header("User-Agent", MINECRAFT_SERVICES_USER_AGENT)
+		.bearer_auth(token)
+		.send()
 	})
 	.await
 	.map_err(|source| MinecraftAuthenticationError::Request {
@@ -887,7 +956,7 @@ async fn minecraft_entitlements(
 
 	serde_json::from_str(&text).map_err(|source| {
 		MinecraftAuthenticationError::DeserializeResponse {
-			source,
+			source: source.into(),
 			raw: safe_error_response(&text),
 			step: MinecraftAuthStep::MinecraftEntitlements,
 			status_code: status,
@@ -977,8 +1046,12 @@ async fn send_signed_request<T: DeserializeOwned>(
 ) -> Result<SignedRequestResponse<T>, MinecraftAuthenticationError> {
 	let auth = authorization.map_or(Vec::new(), |v| v.as_bytes().to_vec());
 
-	let body = serde_json::to_vec(&raw_body)
-		.map_err(|source| MinecraftAuthenticationError::SerializeBody { source, step })?;
+	let body = serde_json::to_vec(&raw_body).map_err(|source| {
+		MinecraftAuthenticationError::SerializeBody {
+			source: source.into(),
+			step,
+		}
+	})?;
 	let time: u128 = { ((current_date.timestamp() as u128) + 11644473600) * 10000000 };
 
 	let mut buffer = Vec::new();
@@ -1006,8 +1079,7 @@ async fn send_signed_request<T: DeserializeOwned>(
 	let signature = BASE64_STANDARD.encode(&sig_buffer);
 
 	let res = auth_retry(|| {
-		let mut request = HTTP_CLIENT
-			.post(url)
+		let mut request = crate::transport::post(url)
 			.header("Content-Type", "application/json; charset=utf-8")
 			.header("Accept", "application/json")
 			.header("Signature", &signature);
@@ -1043,7 +1115,7 @@ async fn send_signed_request<T: DeserializeOwned>(
 
 	let body = serde_json::from_str(&body).map_err(|source| {
 		MinecraftAuthenticationError::DeserializeResponse {
-			source,
+			source: source.into(),
 			raw: safe_error_response(&body),
 			step,
 			status_code: status,
@@ -1082,6 +1154,7 @@ mod tests {
 			session_id: "private-session".into(),
 			auth_request_uri: "https://login.live.com/authorize?state=expected".into(),
 			state: "expected".into(),
+			created: Instant::now(),
 			pair: DeviceTokenPair {
 				key: generate_key().expect("test key"),
 				token: DeviceToken {
@@ -1129,6 +1202,65 @@ mod tests {
 		);
 	}
 	#[test]
+	fn callback_rejects_expired_flow_duplicate_parameters_and_error() {
+		let current = flow();
+		for input in [
+			"https://login.live.com:444/oauth20_desktop.srf?state=expected&code=a",
+			"https://user@login.live.com/oauth20_desktop.srf?state=expected&code=a",
+		] {
+			assert!(
+				current
+					.code_from_redirect(&Url::parse(input).unwrap())
+					.unwrap()
+					.is_none()
+			);
+		}
+		for input in [
+			"https://login.live.com/oauth20_desktop.srf?state=expected&state=expected&code=a",
+			"https://login.live.com/oauth20_desktop.srf?state=expected&code=a&code=b",
+			"https://login.live.com/oauth20_desktop.srf?state=expected&code=",
+			"https://login.live.com/oauth20_desktop.srf?state=expected&error=access_denied",
+			"https://login.live.com/oauth20_desktop.srf?state=expected&code=a#secret",
+		] {
+			assert!(
+				current
+					.code_from_redirect(&Url::parse(input).unwrap())
+					.is_err()
+			);
+		}
+		let mut expired = flow();
+		expired.created = Instant::now() - std::time::Duration::from_secs(601);
+		assert!(
+			expired
+				.code_from_redirect(
+					&Url::parse("https://login.live.com/oauth20_desktop.srf?state=expected&code=a")
+						.unwrap()
+				)
+				.is_err()
+		);
+	}
+	#[tokio::test]
+	async fn expired_flow_cannot_exchange_code_even_without_callback_parser() {
+		let mut expired = flow();
+		expired.created = Instant::now() - std::time::Duration::from_secs(601);
+		assert!(login_finish("synthetic-code", expired).await.is_err());
+	}
+
+	#[test]
+	fn json_error_variant_values_and_invalid_expirations_are_redacted() {
+		let raw = r#""access-token-should-not-appear""#;
+		#[derive(Debug, Deserialize)]
+		enum ClosedVariant {
+			Known,
+		}
+		let error = serde_json::from_str::<ClosedVariant>(raw).unwrap_err();
+		let redacted: RedactedJsonError = error.into();
+		assert!(!format!("{redacted:?} {redacted}").contains("access-token-should-not-appear"));
+		assert!(expiration(Utc::now(), 0).is_err());
+		assert!(expiration(Utc::now(), u64::MAX).is_err());
+		assert!(expiration(Utc::now(), 3600).is_ok());
+	}
+	#[test]
 	fn malformed_auth_response_cannot_expose_tokens() {
 		let raw = r#"{"access_token":"access-secret","refresh_token":"refresh-secret"}"#;
 		let safe = safe_error_response(raw);
@@ -1137,7 +1269,9 @@ mod tests {
 		let error = MinecraftAuthenticationError::DeserializeResponse {
 			step: MinecraftAuthStep::GetOAuthToken,
 			raw: safe,
-			source: serde_json::from_str::<String>("invalid").unwrap_err(),
+			source: serde_json::from_str::<String>("invalid")
+				.unwrap_err()
+				.into(),
 			status_code: StatusCode::BAD_REQUEST,
 		};
 		assert!(!format!("{error:?}").contains("access-secret"));

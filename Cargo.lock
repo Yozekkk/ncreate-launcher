@@ -2611,7 +2611,7 @@ dependencies = [
 
 [[package]]
 name = "ncreate-app-lib"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -2624,10 +2624,12 @@ dependencies = [
  "serde_json",
  "sha2",
  "thiserror 2.0.21",
+ "tiny_http",
  "tokio",
  "tracing",
  "url",
  "uuid",
+ "zeroize",
 ]
 
 [[package]]

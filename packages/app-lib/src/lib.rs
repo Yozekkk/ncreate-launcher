@@ -1,6 +1,13 @@
 //! NCreate's isolated reuse of the Modrinth App Microsoft/Xbox/Minecraft pipeline.
+mod ely_auth;
 mod minecraft_auth;
+mod models;
+mod transport;
 mod vault;
+pub use ely_auth::{ElyAuthEngine, ElyAuthError, ElyOAuthConfig, ElyOAuthFlow, ElyProfile};
+pub use models::*;
+#[cfg(test)]
+mod auth_tests;
 
 pub use minecraft_auth::MinecraftLoginFlow as LoginFlow;
 use serde::Serialize;
@@ -10,6 +17,7 @@ use uuid::Uuid;
 pub(crate) static HTTP_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
 	reqwest::Client::builder()
 		.https_only(true)
+		.redirect(reqwest::redirect::Policy::none())
 		.connect_timeout(std::time::Duration::from_secs(15))
 		.timeout(std::time::Duration::from_secs(30))
 		.user_agent("NCreate Launcher (https://github.com/Yozekkk/ncreate-launcher)")
@@ -68,7 +76,7 @@ impl AuthEngine {
 	}
 	pub async fn finish(&self, code: &str, flow: LoginFlow) -> Result<MicrosoftProfile> {
 		let credentials = minecraft_auth::login_finish(code, flow).await?;
-		let profile = credentials.profile().await?;
+		let profile = credentials.offline_profile.clone();
 		vault::save(&profile.id.to_string(), &credentials).await?;
 		Ok(profile.into())
 	}
@@ -81,9 +89,30 @@ impl AuthEngine {
 				)
 			})?;
 		credentials.refresh().await?;
-		let profile = credentials.profile().await?;
 		vault::save(&uuid.to_string(), &credentials).await?;
+		let profile = credentials.profile().await?;
+		if profile.id != uuid {
+			return Err(Error::OtherError("Minecraft profile UUID mismatch".into()));
+		}
 		Ok(profile.into())
+	}
+	pub async fn session(&self, uuid: Uuid) -> Result<GameSession> {
+		let mut credentials = vault::load::<minecraft_auth::Credentials>(&uuid.to_string())
+			.await?
+			.ok_or_else(|| Error::OtherError("Microsoft account requires sign-in".into()))?;
+		if credentials.offline_profile.id != uuid {
+			return Err(Error::OtherError("Minecraft profile UUID mismatch".into()));
+		}
+		credentials.refresh().await?;
+		vault::save(&uuid.to_string(), &credentials).await?;
+		Ok(GameSession::new(
+			GameIdentity {
+				uuid: credentials.offline_profile.id,
+				nickname: credentials.offline_profile.name.clone(),
+			},
+			AccountProvider::Microsoft,
+			std::mem::take(&mut credentials.access_token),
+		))
 	}
 	pub async fn remove(&self, uuid: Uuid) -> Result<()> {
 		vault::remove(&uuid.to_string()).await
