@@ -5,7 +5,16 @@ import { getVersion } from '@tauri-apps/api/app'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { enable, disable, isEnabled } from '@tauri-apps/plugin-autostart'
 import AppIcon from './components/AppIcon.vue'
-import { editions, type Account, type Settings, type Skin, type Snapshot } from './models'
+import {
+	editions,
+	type Account,
+	type Edition,
+	type EditionId,
+	type Settings,
+	type Skin,
+	type Snapshot,
+} from './models'
+import { canInstallEdition, installEdition } from './edition-installer'
 import { messages } from './i18n'
 
 type Page = 'home' | 'accounts' | 'settings'
@@ -19,6 +28,7 @@ const snapshot = ref<Snapshot | null>(null)
 const draft = ref<Settings | null>(null)
 const loading = ref(true)
 const busy = ref(false)
+const installingEdition = ref<EditionId | null>(null)
 const error = ref('')
 const notice = ref('')
 let noticeTimer: ReturnType<typeof setTimeout> | undefined
@@ -90,6 +100,23 @@ function connectivity() {
 	if (online.value)
 		for (const account of snapshot.value?.accounts || [])
 			if (skins[account.uuid]?.status === 'network_error') void loadSkin(account, true)
+}
+function editionHelp(edition: Edition) {
+	return canInstallEdition(edition)
+		? `Установить NCreate ${edition.name}`
+		: 'Сборка появится в следующем обновлении NCreate Launcher.'
+}
+async function startEditionInstall(edition: Edition) {
+	if (installingEdition.value || !canInstallEdition(edition)) return
+	installingEdition.value = edition.id
+	error.value = ''
+	try {
+		if (!(await installEdition(edition))) notice.value = 'Установка отменена'
+	} catch (reason) {
+		error.value = errorMessage(reason)
+	} finally {
+		installingEdition.value = null
+	}
 }
 async function loadSkin(account: Account, force = false) {
 	if (!force && (skins[account.uuid] || skinLoading[account.uuid])) return
@@ -467,14 +494,25 @@ onUnmounted(() => {
 								</ul>
 								<div
 									class="coming-soon"
-									tabindex="0"
-									aria-label="Сборка появится в следующем обновлении NCreate Launcher"
+									:tabindex="canInstallEdition(edition) ? undefined : 0"
+									:aria-label="editionHelp(edition)"
 								>
-									<button class="button edition-button" disabled>
-										<AppIcon name="game" :size="18" />Скоро</button
-									><span class="edition-tooltip" role="tooltip"
-										>Сборка появится в следующем обновлении NCreate Launcher.</span
+									<button
+										class="button full-width"
+										:class="canInstallEdition(edition) ? 'primary' : 'edition-button'"
+										:disabled="!canInstallEdition(edition) || installingEdition !== null"
+										:aria-busy="installingEdition === edition.id"
+										@click="startEditionInstall(edition)"
 									>
+										<AppIcon name="game" :size="18" />{{
+											installingEdition === edition.id
+												? 'Устанавливаем…'
+												: canInstallEdition(edition)
+													? 'Установить'
+													: 'Скоро'
+										}}
+									</button>
+									<span class="edition-tooltip" role="tooltip">{{ editionHelp(edition) }}</span>
 								</div>
 							</div>
 						</article>
