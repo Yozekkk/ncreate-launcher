@@ -81,7 +81,7 @@ Both platform jobs must pass before the publish job runs. It publishes:
 - `NCreate-Launcher-x.x.x.AppImage` — Linux x64.
 - `NCreate-Launcher-x.x.x-amd64.deb` — Linux x64 Debian package.
 - `NCreate-Launcher-vx.x.x-source.tar.gz` — exact tagged source including license notices and build configuration.
-- `SHA256SUMS` — hashes of the attached installers and source archive.
+- `SHA256SUMS.txt` — hashes of the attached installers and source archive.
 
 The source archive is included alongside the GPLv3 binary distribution.
 JavaScript and Cargo lockfiles are part of the repository. There is no source
@@ -93,6 +93,16 @@ Installers are currently unsigned; Authenticode signing is a separate future
 task requiring a real certificate/service. Automatic updates are disabled.
 See [Tauri's GitHub distribution guide](https://v2.tauri.app/distribute/pipelines/github/)
 and [Windows installer guide](https://v2.tauri.app/distribute/windows-installer/).
+
+## Publishing a version
+
+Before creating a tag, update the app and workspace versions, the versioned download filenames in `README.md`, and `docs/releases/vx.x.x.md`. The notes file's first heading becomes the release title. Run the documented checks and wait for the main CI build to pass, then tag that verified commit.
+
+The workflow creates a draft and publishes it only after both platform jobs succeed and every required asset is present. Re-running it leaves an existing published release unchanged. An existing draft is resumed only when same-name assets match their SHA-256 hashes; different content stops publication without overwriting assets.
+
+Version `v0.1.0` has **Beta** in its title and notes but uses GitHub's regular release channel so `releases/latest` resolves to its downloads. Hyphenated prerelease tags use GitHub's prerelease channel instead. Updating the release version also requires updating README asset links; the general latest-release link stays unchanged.
+
+The initial release uses installers from successful Desktop checks run [36319792086](https://github.com/Yozekkk/ncreate-launcher/actions/runs/36319792086), built at `22b5c7f8311d5b8b6d0d783af871caf8df016250`. Its tag and accompanying source archive refer to that exact commit. Later presentation commits do not change those published binaries.
 
 ## Safe updater plan
 

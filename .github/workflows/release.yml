@@ -114,10 +114,78 @@ jobs:
         run: |
           git archive --format=tar.gz --prefix="ncreate-launcher-${RELEASE_TAG}/" --output="release-assets/NCreate-Launcher-${RELEASE_TAG}-source.tar.gz" HEAD
           cd release-assets
-          sha256sum * > SHA256SUMS
-      - name: Publish complete release
+          sha256sum * > SHA256SUMS.txt
+      - name: Publish complete beta release
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          gh release create "$RELEASE_TAG" release-assets/* --verify-tag --title "NCreate Launcher ${RELEASE_TAG}" --generate-notes --notes "Windows x64 NSIS, Linux x64 AppImage and Debian package. Corresponding GPLv3 source and SHA256SUMS are attached. Automatic updater is disabled. Installers are not code signed."
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          import os from 'node:os';
+          import path from 'node:path';
+          import { createHash } from 'node:crypto';
+          import { execFileSync } from 'node:child_process';
+          const tag = process.env.RELEASE_TAG;
+          const repository = process.env.GITHUB_REPOSITORY;
+          const version = tag.slice(1);
+          const expected = [
+            `NCreate-Launcher-Setup-${version}.exe`,
+            `NCreate-Launcher-${version}.AppImage`,
+            `NCreate-Launcher-${version}-amd64.deb`,
+            `NCreate-Launcher-${tag}-source.tar.gz`,
+            'SHA256SUMS.txt',
+          ];
+          const gh = args => execFileSync('gh', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+          const releaseState = () => {
+            try {
+              return JSON.parse(gh(['api', `repos/${repository}/releases/tags/${tag}`]));
+            } catch (error) {
+              if (String(error.stderr).includes('(HTTP 404)')) return null;
+              throw error;
+            }
+          };
+          let release = releaseState();
+          if (release && !release.draft) {
+            console.log(`Release ${tag} is already published; leaving its metadata and assets unchanged.`);
+          } else {
+            for (const name of expected) {
+              if (!fs.statSync(path.join('release-assets', name)).isFile()) throw new Error(`Missing release asset: ${name}`);
+            }
+            const notesPath = path.join('docs', 'releases', `${tag}.md`);
+            const notes = fs.existsSync(notesPath)
+              ? fs.readFileSync(notesPath, 'utf8')
+              : `# NCreate Launcher ${tag}\n\nWindows x64 and Linux x64 desktop packages, corresponding source and SHA256 checksums are attached.\n`;
+            const title = notes.match(/^# (.+)$/m)?.[1] ?? `NCreate Launcher ${tag}`;
+            const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'ncreate-release-'));
+            try {
+              const body = path.join(temporary, 'notes.md');
+              fs.writeFileSync(body, notes);
+              if (!release) {
+                const args = ['release', 'create', tag, '--verify-tag', '--draft', '--title', title, '--notes-file', body];
+                if (tag.includes('-')) args.push('--prerelease');
+                gh(args);
+                release = releaseState();
+                if (!release?.draft) throw new Error('Expected an unpublished draft release');
+              }
+              const digest = file => createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+              for (const name of expected) {
+                const local = path.join('release-assets', name);
+                if (release.assets.some(asset => asset.name === name)) {
+                  gh(['release', 'download', tag, '--pattern', name, '--dir', temporary]);
+                  if (digest(local) !== digest(path.join(temporary, name))) throw new Error(`Existing draft asset differs: ${name}. No asset was overwritten.`);
+                } else {
+                  gh(['release', 'upload', tag, local]);
+                }
+              }
+              const complete = releaseState();
+              if (!complete?.draft || !expected.every(name => complete.assets.some(asset => asset.name === name))) {
+                throw new Error('Release asset verification failed; draft remains unpublished');
+              }
+              gh(['release', 'edit', tag, '--draft=false', `--prerelease=${tag.includes('-')}`, '--title', title, '--notes-file', body]);
+              console.log(`Published ${title} with all required assets.`);
+            } finally {
+              fs.rmSync(temporary, { recursive: true, force: true });
+            }
+          }
+          JS
