@@ -67,15 +67,19 @@ Skin providers: Mojang, Ely.by, Fallback. Полная Ely.by authentication и 
 скина в игру относятся к следующему этапу.
 
 Edition definitions: `apps/app-frontend/src/models.ts`. Все manifests сейчас `null`.
-Будущее подключение установки должно добавить проверенный backend-модуль и
-доверенные manifests; одного изменения текста кнопки недостаточно.
+Будущее подключение установки регистрирует `configureEditionInstaller(handler)`
+из `apps/app-frontend/src/edition-installer.ts` и назначает доверенный manifest
+нужной edition. UI уже выводит доступность и прогресс через этот adapter. Без
+обработчика и manifest кнопка остаётся disabled; настоящий backend установки
+в первом этапе отсутствует.
 
 ## Проверка интерфейса
 
 Development bridge для `tauri-agent-tools` собирается только с `debug_assertions`;
 в production его модуль и IPC-команда отсутствуют. Локальные screenshots/logs
 находятся в игнорируемом каталоге `verification/`; фактические результаты
-фиксируются в [чеклисте](docs/REQUIREMENTS.md).
+фиксируются в [чеклисте](docs/REQUIREMENTS.md). Итоговые осмотренные экраны
+сохранены также в [docs/screenshots](docs/screenshots).
 
 Проверены реальный Tauri desktop под X11, Home/Accounts/Offline/Microsoft
 sign-in/Settings и размер окна 860×620. Два офлайн профиля сохранились после

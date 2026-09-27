@@ -1,6 +1,6 @@
 # Stage-one requirements and evidence
 
-This records observed stage-one evidence on 2026-09-26. Linux packaging and production smoke passed; remote
+This records observed stage-one evidence on 2026-09-26 and final review on 2026-09-27. Linux packaging and production smoke passed; remote
 CI/publication status is recorded separately. Source code existence alone cannot justify
 `PASS`; partial rows name the unverified remainder.
 
@@ -11,11 +11,11 @@ names an external dependency; `NOT IMPLEMENTED` means functionality is absent;
 
 | Original section | Acceptance checks | Status and evidence |
 | --- | --- | --- |
-| 1. GitHub and structure | Audit current upstream main and licenses; standalone desktop boundary; preserve notices; separate `Yozekkk/ncreate-launcher`; do not modify upstream/site | PARTIAL — upstream main/licenses audited; source/site checkout pristine; separate local repository prepared. GitHub repository created; source push/remote CI pending. |
+| 1. GitHub and structure | Audit current upstream main and licenses; standalone desktop boundary; preserve notices; separate `Yozekkk/ncreate-launcher`; do not modify upstream/site | PASS — upstream main/licenses audited; original source/site untouched; separate public repository created and main pushed. Windows/Linux CI succeeded in run 36256748738. |
 | 2. Branding | Product/window/binary/package/installer/desktop names; unique identifier; `ncreate://`; error/loading/About/README text; isolated directories | PARTIAL — real Linux window/title and NCreate interface verified; metadata and directory isolation inspected; warm ncreate://settings routing changed the actual page with one process. Linux AppImage/deb names, native title/class/icon and packaged desktop entry verified; Windows runtime pending. |
 | 3. NCreate design | Official site logo/assets; dark orange/amber identity; readable premium dashboard; motion/rounded surfaces | PASS — official NCreate assets used; real X11 desktop screenshots inspected and Home refined; 860×620 layout checked. |
 | 4. Home | Three large Minimal/Standard/Ultra cards with Russian text and recommended Standard badge | PASS — real desktop Home shows Minimal/Standard/Ultra and recommended Standard; small-window scroll reaches all buttons. |
-| 5. Unavailable editions | Disabled Soon buttons/tooltips; typed `minimal/standard/ultra` models; no hidden install or launch | PASS — all three Soon buttons remain disabled; typed models have null manifests; no launch/install command exposed. |
+| 5. Unavailable editions | Disabled Soon buttons/tooltips; typed `minimal/standard/ultra` models; no hidden install or launch | PASS — all three Soon buttons remain disabled; typed models have null manifests; no native launch/install command exposed. The future typed adapter requires both a manifest and handler; six availability/dispatch/cancellation/error tests pass. |
 | 6. Removed features | No browse/store/import/create instance/hosting/friends/news/monetization/Modrinth login route or reachable UI | PASS — standalone route/source audit and desktop navigation expose only Home/Accounts/Settings; excluded upstream product clients absent. |
 | 7. Microsoft | Reuse upstream Minecraft auth; browser OAuth; saved nickname/UUID/avatar; activate/remove; secure tokens; no secret logs | PARTIAL — upstream OAuth/Xbox/XSTS flow reaches official Microsoft sign-in; callback/state tests and native credential-store roundtrip pass. Account-owner completion, profile save/refresh/remove remain BLOCKED on interactive credentials. |
 | 8. Offline | Nickname-only creation; deterministic offline UUID; avatar/type/active state; persists across restart | PASS — two offline profiles created; activate/rename updates deterministic UUID; snapshot persisted after restart; no password required. |
@@ -23,8 +23,8 @@ names an external dependency; `NOT IMPLEMENTED` means functionality is absent;
 | 10. Account cabinet | Click profile; nickname/type/UUID/skin/status; activate/delete; Microsoft refresh; offline rename UUID semantics | PARTIAL — offline account cabinet/skin/type/UUID/active controls, activation and rename verified. Authenticated Microsoft refresh awaits account-owner login. |
 | 11. Sidebar | Home/Accounts/Settings only; active nickname and avatar in footer; navigation works | PASS — sidebar navigation and active account footer verified in real desktop and 860×620 window. |
 | 12. Settings | Launcher language/theme; autostart if feasible; safe updater control; future RAM/Java/game directory; animation/blur/reduced motion; persistence | PARTIAL — Settings rendered/scroll-tested with future Minecraft fields, theme/motion/blur and disabled updater. Russian is the available first-stage language; startup behavior across a real system login not tested. |
-| 13. Installer | Real Tauri app; Linux dev; Linux AppImage and preferably deb; Windows x64 NSIS names; no macOS dependency | PARTIAL — Linux native desktop dev works; final Linux AppImage (154 MiB) and deb (5.8 MiB) built, normalized names verified, actual AppImage UI/persistence/restart inspected. Windows NSIS remote build pending. |
-| 14. Actions | Push/PR dependency install/lint/typecheck/Rust/build; v-tag Windows and Linux bundles; no committed secrets | PARTIAL — both workflows pass actionlint; locked install/frontend/Rust checks run locally; all-version tag guard tested. Remote runs and release publication pending. |
+| 13. Installer | Real Tauri app; Linux dev; Linux AppImage and preferably deb; Windows x64 NSIS names; no macOS dependency | PARTIAL — Linux native desktop dev works; final Linux AppImage (154 MiB) and deb (5.8 MiB) built, normalized names verified, actual AppImage UI/persistence/restart inspected. Windows x64 NSIS successfully built and downloaded from real GitHub Actions. Windows installation/runtime remains untested on this Linux host. |
+| 14. Actions | Push/PR dependency install/lint/typecheck/Rust/build; v-tag Windows and Linux bundles; no committed secrets | PASS for pipeline — actionlint/version guard and actual push workflow passed on Ubuntu 22.04 and Windows, producing all three installers. Tag publication is configured; no release tag was published. |
 | 15. Updater | No Modrinth endpoint; safe disabled initial state; future signing/public config/secrets documented | PASS — updater plugin/endpoints/capabilities absent; control safely disabled; future NCreate-only signing/endpoint steps documented. |
 | 16. Network | Audit production API hosts; no unwanted startup calls; explain every retained Modrinth destination | PASS — source destination audit records removed services and inactive provenance strings; skin redirect allowlist tested. No full packet capture claimed. |
 | 17. Privacy | No Modrinth/PostHog/Sentry telemetry; local diagnostics; no passwords/tokens logged | PASS — telemetry dependencies/product clients absent; token redaction regression test and OS credential-store roundtrip verified; no plaintext token fallback. |
@@ -33,10 +33,10 @@ names an external dependency; `NOT IMPLEMENTED` means functionality is absent;
 | 20. UX | Loading/empty/error/network/auth/skin states; focus/keyboard/scrollbar/hover; resize; no jumps/clipping; light 150–250 ms motion | PARTIAL — real screenshots cover empty/validation/auth progress/skins/fallback and 860×620 resize/scroll; offline form autofocus/Tab/Escape verified. Network banner used simulated navigator offline state, not physical disconnect. Full Microsoft completion/platform UX unavailable. |
 | 21. Russian | Natural Russian labels; architecture allows future English | PASS — Russian screens inspected; messages isolated in locales/ru with future locale boundary. English not implemented in stage one. |
 | 22. Prohibitions | No Electron/site replacement/brand tint only; no dummy manifests/arbitrary packs; no secrets; notices retained; site untouched | PASS — Vue/Tauri desktop adaptation; unavailable editions/no dummy manifests; no Electron/marketplace/secrets; license notices retained; site pristine. |
-| 23. Workflow | Audit before adaptation; launch early; accounts/skins/settings/build/runtime; logical verified commits; push after verification | PARTIAL — audit, real launch, refinement and root-cause debugging performed. Verified atomic commit/push sequence still pending. |
+| 23. Workflow | Audit before adaptation; launch early; accounts/skins/settings/build/runtime; logical verified commits; push after verification | PASS — audit, real launch/refinement and root-cause debugging performed; verified auth, desktop, CI, LF correction and edition adapter commits created. Main source pushed after desktop checks. |
 | 24. Desktop smoke | Linux real window title/icon; editions/sidebar; offline create/persist/switch; skin/fallback; settings; restart; no console panic; separate data; OAuth boundary | PARTIAL — real X11 dev desktop smoke, offline profiles/skins/sidebar/settings and standalone debug restart pass. production AppImage Home/accounts/settings and restart inspected; cold ncreate://settings opens Settings. Full Microsoft completion externally blocked. |
-| 25. Definition of Done | Real desktop; complete design; unavailable editions; saved offline and Microsoft flow; Ely skins; settings; installers/CI; tested Linux; working GitHub main | PARTIAL — working native desktop/accounts/skins/settings verified. Linux AppImage/deb and production smoke pass. Windows CI, GitHub main push and authenticated Microsoft profile completion remain outstanding. |
-| 26. Final report | Reuse/removal/files/accounts/auth/skins/models/endpoints/data/artifacts/check results; pushed SHA/repo; exact dev/build commands/artifact; disclose gaps | PENDING — report will include final artifact and pushed SHA once available; exact commands and current blockers documented. |
+| 25. Definition of Done | Real desktop; complete design; unavailable editions; saved offline and Microsoft flow; Ely skins; settings; installers/CI; tested Linux; working GitHub main | PARTIAL — working native desktop/accounts/skins/settings verified. Linux AppImage/deb and production smoke pass. Windows installer build and GitHub main source pass. Full Microsoft profile completion remains externally blocked by interactive user authentication; Windows installation/runtime is unverified. |
+| 26. Final report | Reuse/removal/files/accounts/auth/skins/models/endpoints/data/artifacts/check results; pushed SHA/repo; exact dev/build commands/artifact; disclose gaps | PASS — docs/VERIFICATION.md and README record source reuse, account/skin boundaries, editions, endpoints/data, checks, artifact paths and exact commands. Final response identifies the pushed main SHA and remaining external gaps. |
 
 ## Required command evidence
 
@@ -52,8 +52,8 @@ names an external dependency; `NOT IMPLEMENTED` means functionality is absent;
 | Desktop development launch | `pnpm app:dev` | PASS — native Tauri X11 window inspected, diagnostics and screenshots |
 | Linux production bundles | `pnpm app:build --bundles appimage,deb` | PASS — final AppImage and deb build completed after native patchelf installation and NO_STRIP compatibility fix |
 | Production app smoke | Launch actual built binary/AppImage | PASS — actual AppImage on Linux, persisted Ely.by account, Home/accounts/settings, restart, cold link; no release bridge |
-| Windows NSIS | Windows workflow run + installer verification | PENDING |
-| GitHub source | Repository URL + pushed main SHA | PENDING |
+| Windows NSIS | Windows workflow run + installer verification | PASS build — real Windows CI produced NCreate-Launcher-Setup-0.1.0.exe; downloaded PE/NSIS archive inspected. PARTIAL installation/runtime — no Windows desktop available locally |
+| GitHub source | Repository URL + pushed main SHA | PASS — https://github.com/Yozekkk/ncreate-launcher, main; exact final SHA is reported with git rev-parse HEAD |
 
 ## Required visual evidence
 
@@ -82,12 +82,11 @@ authentication and remote CI outcomes must be recorded as observed.
 Both workflow files passed `actionlint` v1.7.12 after the packaging review.
 The exact release version guard ran locally: `v0.1.0` accepted all current
 JavaScript/Tauri/Cargo workspace versions; `v9.9.9` and `vinvalid` were rejected.
-This validates workflow structure and guard behavior, not Windows execution
-or remote GitHub Actions outcomes.
+Actual Windows and Linux jobs also succeeded in [run 36256748738](https://github.com/Yozekkk/ncreate-launcher/actions/runs/36256748738), on source e307fd3cf2a09a1ff689db177e06ced4581f9f0c. Its NSIS/AppImage/deb artifacts were downloaded and inspected. Later adapter changes add six tests and retain the same unavailable default editions; the latest main workflow result is linked in the final report.
 
 ## Runtime and packaging limitations
 
-Screenshots above live in ignored local `verification/`; they were inspected
+Screenshots above live in local `verification/`; selected reviewed screens are committed in `docs/screenshots/`. they were inspected
 by the implementation agent from the actual Tauri WebView, not a browser-only
 mock. `account-ely.png` and `account-fallback-final.png` record actual Ely.by
 preview and missing-skin fallback. Microsoft completion requires the account
@@ -95,7 +94,7 @@ owner's browser authentication; no credentials were supplied or simulated.
 
 Standalone debug `request_restart` produced a new process ID and restored the
 same saved snapshot. Under `tauri dev`, the supervising CLI terminates the
-restart child; verify restart from the packaged app separately. The native
+restart child; packaged AppImage restart was verified separately with a new process ID, preserved account/settings and successful reopened screens. The native
 credential store completed a write/read/delete roundtrip without logging a
 token. Rust tests also cover callback origin/state and secret-safe errors.
 
@@ -114,3 +113,12 @@ form. A simulated `navigator` offline condition displayed the network banner
 without breaking the page; the machine was not physically disconnected.
 A warm `ncreate://settings` binary argument changed the actual settings route
 and left a single application process. Cold `ncreate://settings` AppImage launch was also verified after adding the initial-route IPC command. Final Microsoft exchange disables cancellation once browser authentication is complete.
+
+## Final review limits
+
+- PASS: Linux production desktop, unavailable editions, offline create/persist/switch/rename/delete, real Ely.by image and fallback, settings persistence, native restart, warm/cold NCreate routing and production bridge exclusion.
+- PASS: locked dependency install, frontend typecheck/lint/format/build, six adapter tests, Rust fmt/check/clippy and 15 Rust tests; real Windows/Linux CI installer builds.
+- PARTIAL / BLOCKED: Microsoft initiation and official browser page work; full authenticated save/refresh needs the account owner to finish authentication.
+- PARTIAL: Windows NSIS is built, but installation and GUI interaction on Windows have not been verified here; system-login autostart also remains untested.
+- NOT IMPLEMENTED by stage-one scope: Minecraft downloads/launches, full Ely.by account auth, English UI and signed automatic updates. Updater/Authenticode activation requires real keys/certificates.
+- Local test profiles were removed through the application and theme/motion defaults restored.
