@@ -96,7 +96,7 @@ and [Windows installer guide](https://v2.tauri.app/distribute/windows-installer/
 
 ## Publishing a version
 
-Before creating a tag, update the app and workspace versions, the versioned download filenames in `README.md`, and `docs/releases/vx.x.x.md`. The notes file's first heading becomes the release title. Run the documented checks and wait for the main CI build to pass, then tag that verified commit.
+Before creating a tag, update the app and workspace versions, the planned package names in both `README.md` and `README.en.md`, and `docs/releases/vx.x.x.md`. Keep direct download links on the last verified public release until the new installers exist. The notes file's first heading becomes the release title. Run the documented checks and wait for the main CI build to pass, then tag that verified commit. Once all release assets are verified and published, update both README download tables together to point at the new files.
 
 The workflow creates a draft and publishes it only after both platform jobs succeed and every required asset is present. Re-running it leaves an existing published release unchanged. An existing draft is resumed only when same-name assets match their SHA-256 hashes; different content stops publication without overwriting assets.
 
