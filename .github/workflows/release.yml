@@ -138,14 +138,10 @@ jobs:
             'SHA256SUMS.txt',
           ];
           const gh = args => execFileSync('gh', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
-          const releaseState = () => {
-            try {
-              return JSON.parse(gh(['api', `repos/${repository}/releases/tags/${tag}`]));
-            } catch (error) {
-              if (String(error.stderr).includes('(HTTP 404)')) return null;
-              throw error;
-            }
-          };
+          // The release-by-tag endpoint returns 404 for drafts, so include drafts from the list endpoint.
+          const releaseState = () => JSON.parse(gh(['api', '--paginate', '--slurp', `repos/${repository}/releases?per_page=100`]))
+            .flat()
+            .find(release => release.tag_name === tag) ?? null;
           let release = releaseState();
           if (release && !release.draft) {
             console.log(`Release ${tag} is already published; leaving its metadata and assets unchanged.`);
