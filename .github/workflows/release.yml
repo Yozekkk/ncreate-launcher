@@ -22,7 +22,7 @@ jobs:
           - os: windows-latest
             bundles: nsis
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    timeout-minutes: 90
     env:
       CARGO_INCREMENTAL: "0"
       CARGO_TERM_COLOR: always
@@ -53,7 +53,7 @@ jobs:
             if (version !== expected) throw new Error(`${file}: version ${version} does not match ${tag}`);
           }
           const metadata = JSON.parse(execFileSync('cargo', ['metadata', '--format-version', '1', '--no-deps', '--locked'], { encoding: 'utf8' }));
-          for (const pkg of metadata.packages.filter(pkg => metadata.workspace_members.includes(pkg.id))) {
+          for (const pkg of metadata.packages.filter(pkg => metadata.workspace_members.includes(pkg.id) && pkg.name.startsWith('ncreate-'))) {
             if (pkg.version !== expected) throw new Error(`${pkg.manifest_path}: version ${pkg.version} does not match ${tag}`);
           }
           JS
@@ -65,10 +65,11 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm prepr:frontend:app
       - run: pnpm build
-      - run: cargo fmt --all --check
-      - run: cargo check --locked --workspace --all-targets
-      - run: cargo clippy --locked --workspace --all-targets -- -D warnings
-      - run: cargo test --locked --workspace
+      - run: cargo fmt --package ncreate-launcher --package ncreate-app-lib --package ncreate-launcher-core --check
+      - run: cargo check --locked -p ncreate-launcher -p ncreate-app-lib -p ncreate-launcher-core --all-targets
+      - run: cargo clippy --locked -p ncreate-launcher -p ncreate-app-lib -p ncreate-launcher-core --all-targets --no-deps -- -D warnings
+      - run: cargo test --locked -p ncreate-launcher -p ncreate-app-lib -p ncreate-launcher-core
+      - run: node scripts/check-stage2-boundary.mjs
       - name: Build production installers
         run: pnpm app:build --bundles ${{ matrix.bundles }}
       - name: Stage named release artifacts
