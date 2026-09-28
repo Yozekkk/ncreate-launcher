@@ -25,16 +25,15 @@
 ## Download
 
 > [!IMPORTANT]
-> [!NOTE]
-> **v0.5.0 Beta** is a functional launcher with a Minecraft Library, game installation, and a mod catalog. The official Minimal, Standard, and Ultra editions are still unavailable; other limitations are listed below. Installers will appear on the releases page after the Windows and Linux builds pass verification.
+> **v0.5.0 Beta** is a functional launcher with a Minecraft Library, game installation, and a mod catalog. The official Minimal, Standard, and Ultra editions are still unavailable; other limitations are listed below. Windows and Linux installers are published and SHA-256 verified.
 
-| Platform                                                                    | v0.5.0 Beta file                   | Download                                                              |
-| :-------------------------------------------------------------------------- | :--------------------------------- | :-------------------------------------------------------------------- |
-| **Windows 10/11 x64**                                                       | `NCreate-Launcher-Setup-0.5.0.exe` | [View releases](https://github.com/Yozekkk/ncreate-launcher/releases) |
-| **Linux x64** — EndeavourOS, Arch, Manjaro, Fedora, and other distributions | `NCreate-Launcher-0.5.0.AppImage`  | [View releases](https://github.com/Yozekkk/ncreate-launcher/releases) |
-| **Debian, Ubuntu, Linux Mint**, and compatible systems                      | `NCreate-Launcher-0.5.0-amd64.deb` | [View releases](https://github.com/Yozekkk/ncreate-launcher/releases) |
+| Platform                                                                    | v0.5.0 Beta file                   | Download                                                                                                                          |
+| :-------------------------------------------------------------------------- | :--------------------------------- | :-------------------------------------------------------------------------------------------------------------------------------- |
+| **Windows 10/11 x64**                                                       | `NCreate-Launcher-Setup-0.5.0.exe` | **[Download for Windows](https://github.com/Yozekkk/ncreate-launcher/releases/download/v0.5.0/NCreate-Launcher-Setup-0.5.0.exe)** |
+| **Linux x64** — EndeavourOS, Arch, Manjaro, Fedora, and other distributions | `NCreate-Launcher-0.5.0.AppImage`  | **[Download AppImage](https://github.com/Yozekkk/ncreate-launcher/releases/download/v0.5.0/NCreate-Launcher-0.5.0.AppImage)**     |
+| **Debian, Ubuntu, Linux Mint**, and compatible systems                      | `NCreate-Launcher-0.5.0-amd64.deb` | **[Download DEB](https://github.com/Yozekkk/ncreate-launcher/releases/download/v0.5.0/NCreate-Launcher-0.5.0-amd64.deb)**         |
 
-[All releases](https://github.com/Yozekkk/ncreate-launcher/releases) · [Latest release](https://github.com/Yozekkk/ncreate-launcher/releases/latest)
+[v0.5.0 release notes](https://github.com/Yozekkk/ncreate-launcher/releases/tag/v0.5.0) · [All releases](https://github.com/Yozekkk/ncreate-launcher/releases) · [SHA-256 checksums](https://github.com/Yozekkk/ncreate-launcher/releases/download/v0.5.0/SHA256SUMS.txt)
 
 ## What's new in v0.5.0
 
@@ -101,7 +100,7 @@ Automatic launcher updates are currently disabled until signed NCreate releases 
 
 ## Installation
 
-Choose the v0.5.0 package for your system on the release page and install it as follows.
+Choose the v0.5.0 package for your system in the table above and install it as follows.
 
 ### Windows 10/11 x64
 

@@ -25,16 +25,15 @@
 ## Скачать
 
 > [!IMPORTANT]
-> [!NOTE]
-> **v0.5.0 Beta** — функциональный лаунчер с Библиотекой, установкой Minecraft и каталогом модов. Официальные сборки NCreate Minimal, Standard и Ultra пока недоступны; другие ограничения перечислены ниже. Установщики появятся на странице релизов после проверки Windows и Linux сборок.
+> **v0.5.0 Beta** — функциональный лаунчер с Библиотекой, установкой Minecraft и каталогом модов. Официальные сборки NCreate Minimal, Standard и Ultra пока недоступны; другие ограничения перечислены ниже. Установщики Windows и Linux опубликованы и проверены по SHA-256.
 
-| Платформа                                                                | Файл v0.5.0 Beta                   | Скачать                                                                |
-| :----------------------------------------------------------------------- | :--------------------------------- | :--------------------------------------------------------------------- |
-| **Windows 10/11 x64**                                                    | `NCreate-Launcher-Setup-0.5.0.exe` | [Открыть релизы](https://github.com/Yozekkk/ncreate-launcher/releases) |
-| **Linux x64** — EndeavourOS, Arch, Manjaro, Fedora и другие дистрибутивы | `NCreate-Launcher-0.5.0.AppImage`  | [Открыть релизы](https://github.com/Yozekkk/ncreate-launcher/releases) |
-| **Debian, Ubuntu, Linux Mint** и совместимые системы                     | `NCreate-Launcher-0.5.0-amd64.deb` | [Открыть релизы](https://github.com/Yozekkk/ncreate-launcher/releases) |
+| Платформа                                                                | Файл v0.5.0 Beta                   | Скачать                                                                                                                          |
+| :----------------------------------------------------------------------- | :--------------------------------- | :------------------------------------------------------------------------------------------------------------------------------- |
+| **Windows 10/11 x64**                                                    | `NCreate-Launcher-Setup-0.5.0.exe` | **[Скачать для Windows](https://github.com/Yozekkk/ncreate-launcher/releases/download/v0.5.0/NCreate-Launcher-Setup-0.5.0.exe)** |
+| **Linux x64** — EndeavourOS, Arch, Manjaro, Fedora и другие дистрибутивы | `NCreate-Launcher-0.5.0.AppImage`  | **[Скачать AppImage](https://github.com/Yozekkk/ncreate-launcher/releases/download/v0.5.0/NCreate-Launcher-0.5.0.AppImage)**     |
+| **Debian, Ubuntu, Linux Mint** и совместимые системы                     | `NCreate-Launcher-0.5.0-amd64.deb` | **[Скачать DEB](https://github.com/Yozekkk/ncreate-launcher/releases/download/v0.5.0/NCreate-Launcher-0.5.0-amd64.deb)**         |
 
-[Все релизы](https://github.com/Yozekkk/ncreate-launcher/releases) · [Последний релиз](https://github.com/Yozekkk/ncreate-launcher/releases/latest)
+[Заметки релиза v0.5.0](https://github.com/Yozekkk/ncreate-launcher/releases/tag/v0.5.0) · [Все релизы](https://github.com/Yozekkk/ncreate-launcher/releases) · [SHA-256 контрольные суммы](https://github.com/Yozekkk/ncreate-launcher/releases/download/v0.5.0/SHA256SUMS.txt)
 
 ## Что нового в v0.5.0
 
@@ -101,7 +100,7 @@ Minimal, Standard и Ultra остаются отдельными версиям�
 
 ## Установка
 
-Выберите файл v0.5.0 для своей системы на странице релиза и установите его по инструкции ниже.
+Выберите файл v0.5.0 для своей системы в таблице выше и установите его по инструкции ниже.
 
 ### Windows 10/11 x64
 
