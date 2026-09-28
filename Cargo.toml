@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
-members = ["apps/app", "packages/app-lib"]
+members = ["apps/app", "packages/app-lib", "packages/launcher-core"]
+exclude = ["packages/launcher-core/upstream/daedalus", "packages/launcher-core/upstream/path-util", "packages/launcher-core/upstream/modrinth-content-management"]
 [workspace.package]
 edition = "2024"
 license = "GPL-3.0-only"

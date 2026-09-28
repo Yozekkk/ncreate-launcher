@@ -1,0 +1,15 @@
+[package]
+name = "modrinth-content-management"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-only"
+[dependencies]
+async-trait = "0.1"
+chrono = { version = "0.4", features = ["serde"] }
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+utoipa = { version = "5", optional = true }
+[features]
+utoipa = ["dep:utoipa"]
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt"] }

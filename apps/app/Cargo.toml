@@ -1,12 +1,16 @@
 [package]
 name = "ncreate-launcher"
-version = "0.1.0"
+version = "0.2.0"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Official NCreate Minecraft launcher"
 [dependencies]
 ncreate-app-lib = { path = "../../packages/app-lib" }
+ncreate-launcher-core = { path = "../../packages/launcher-core" }
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+zeroize = "1"
 tauri = { version = "2.11.5", features = [] }
 tauri-plugin-deep-link = "2.4.9"
 tauri-plugin-single-instance = { version = "2.4", features = ["deep-link"] }

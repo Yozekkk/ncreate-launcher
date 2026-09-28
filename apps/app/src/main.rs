@@ -1,13 +1,16 @@
-//! Adapted from the Modrinth App Tauri shell; only NCreate stage-one commands are registered.
+//! NCreate desktop shell with an isolated native IPC and credential boundary.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+mod core_commands;
 #[cfg(debug_assertions)]
 #[allow(dead_code, clippy::all)]
 mod dev_bridge;
 mod skins;
 mod storage;
 
-use ncreate_app_lib::AuthEngine;
+use ncreate_app_lib::{AuthEngine, ElyAuthEngine};
+use ncreate_launcher_core::Engine;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::{collections::HashMap, path::PathBuf, sync::Arc};
 use storage::{Result, Settings, Snapshot, Store};
 use tauri::{Emitter, Manager};
 use tokio::sync::{Mutex, OnceCell};
@@ -15,11 +18,25 @@ use tokio::sync::{Mutex, OnceCell};
 struct AppState {
 	store: OnceCell<Store>,
 	auth: AuthEngine,
+	ely_auth: ElyAuthEngine,
+	engine: OnceCell<Arc<Engine>>,
+	file_grants: Mutex<HashMap<PathBuf, core_commands::FileGrant>>,
 	skins: skins::SkinService,
 	login: Mutex<()>,
 	cancellation: AtomicU64,
 }
 impl AppState {
+	async fn engine(&self) -> Result<Arc<Engine>> {
+		self.engine
+			.get_or_try_init(|| async {
+				let store = self.store().await?;
+				Engine::open(store.directory.clone(), store.pool.clone())
+					.await
+					.map_err(core_commands::core_error)
+			})
+			.await
+			.cloned()
+	}
 	async fn store(&self) -> Result<&Store> {
 		self.store.get_or_try_init(Store::new).await
 	}
@@ -33,7 +50,7 @@ fn local(window: &tauri::WebviewWindow) -> Result<()> {
 fn launcher_route(url: &url::Url) -> Option<&str> {
 	let host = url.host_str()?;
 	(url.scheme() == "ncreate"
-		&& ["home", "accounts", "settings"].contains(&host)
+		&& ["home", "library", "content", "accounts", "settings"].contains(&host)
 		&& url.username().is_empty()
 		&& url.password().is_none()
 		&& url.port().is_none()
@@ -103,12 +120,12 @@ async fn remove_account(
 	local(&window)?;
 	let store = state.store().await?;
 	let account = store.account(&uuid).await?;
-	let _auth_gate = if account.kind == "microsoft" {
+	let _auth_gate = if account.kind != "offline" {
 		Some(
 			state
 				.login
 				.try_lock()
-				.map_err(|_| "Дождитесь завершения Microsoft операции".to_string())?,
+				.map_err(|_| "Дождитесь завершения операции с аккаунтом".to_string())?,
 		)
 	} else {
 		None
@@ -119,6 +136,13 @@ async fn remove_account(
 			.remove(uuid::Uuid::parse_str(&uuid).map_err(|_| "Некорректный UUID".to_string())?)
 			.await
 			.map_err(auth_error)?;
+	}
+	if account.kind == "ely_by" {
+		state
+			.ely_auth
+			.remove(uuid::Uuid::parse_str(&uuid).map_err(|_| "Некорректный UUID".to_string())?)
+			.await
+			.map_err(|_| "Не удалось завершить сеанс Ely.by".to_string())?;
 	}
 	let result = store.remove(&uuid).await?;
 	let _ = tokio::fs::remove_file(store.directory.join("skins").join(format!("{uuid}.png"))).await;
@@ -133,18 +157,23 @@ async fn refresh_account(
 	local(&window)?;
 	let store = state.store().await?;
 	let account = store.account(&uuid).await?;
-	if account.kind != "microsoft" {
-		return Err("Обновление доступно для Microsoft аккаунта".into());
+	if account.kind == "offline" {
+		return Err("Локальный профиль не требует обновления сеанса".into());
 	}
 	let _auth_gate = state
 		.login
 		.try_lock()
-		.map_err(|_| "Дождитесь завершения Microsoft операции".to_string())?;
-	let profile = state
-		.auth
-		.refresh(uuid::Uuid::parse_str(&uuid).map_err(|_| "Некорректный UUID".to_string())?)
-		.await
-		.map_err(auth_error)?;
+		.map_err(|_| "Дождитесь завершения операции с аккаунтом".to_string())?;
+	let id = uuid::Uuid::parse_str(&uuid).map_err(|_| "Некорректный UUID".to_string())?;
+	if account.kind == "ely_by" {
+		let profile = state
+			.ely_auth
+			.refresh(id)
+			.await
+			.map_err(|_| "Не удалось обновить профиль Ely.by. Повторите вход.".to_string())?;
+		return store.ely_by(profile, false).await;
+	}
+	let profile = state.auth.refresh(id).await.map_err(auth_error)?;
 	let _ = tokio::fs::remove_file(store.directory.join("skins").join(format!("{uuid}.png"))).await;
 	store.microsoft(profile, false).await
 }
@@ -253,7 +282,20 @@ async fn microsoft_login(
 			let _ = signin.close();
 			let _ = app.emit_to("main", "auth-progress", "minecraft");
 			let profile = state.auth.finish(&code, flow).await.map_err(auth_error)?;
-			return Ok(Some(state.store().await?.microsoft(profile, true).await?));
+			let store = state.store().await?;
+			let existed = store.account(&profile.uuid.to_string()).await.is_ok();
+			if state.cancellation.load(Ordering::SeqCst) != generation {
+				if !existed {
+					state.auth.remove(profile.uuid).await.map_err(auth_error)?;
+				}
+				return Ok(None);
+			}
+			let id = profile.uuid;
+			let stored = store.microsoft(profile, true).await;
+			if stored.is_err() && !existed {
+				state.auth.remove(id).await.map_err(auth_error)?;
+			}
+			return stored.map(Some);
 		}
 		tokio::time::sleep(std::time::Duration::from_millis(150)).await;
 	}
@@ -272,6 +314,9 @@ fn run() -> std::result::Result<(), Box<dyn std::error::Error>> {
 	let state = AppState {
 		store: OnceCell::new(),
 		auth: AuthEngine::new(),
+		ely_auth: ElyAuthEngine::new(),
+		engine: OnceCell::new(),
+		file_grants: Mutex::new(HashMap::new()),
 		skins: skins::SkinService::new()?,
 		login: Mutex::new(()),
 		cancellation: AtomicU64::new(0),
@@ -285,6 +330,8 @@ fn run() -> std::result::Result<(), Box<dyn std::error::Error>> {
 			}
 		}))
 		.plugin(tauri_plugin_deep_link::init())
+		.plugin(tauri_plugin_dialog::init())
+		.plugin(tauri_plugin_opener::init())
 		.plugin(
 			tauri_plugin_window_state::Builder::default()
 				.with_state_flags(
@@ -330,6 +377,41 @@ fn run() -> std::result::Result<(), Box<dyn std::error::Error>> {
 		skin,
 		restart_launcher,
 		microsoft_login,
+		core_commands::ely_login,
+		core_commands::core_instances,
+		core_commands::core_create_instance,
+		core_commands::core_edit_instance,
+		core_commands::core_delete_instance,
+		core_commands::core_duplicate_instance,
+		core_commands::core_content,
+		core_commands::core_toggle_content,
+		core_commands::core_remove_content,
+		core_commands::core_check_updates,
+		core_commands::core_update_content,
+		core_commands::core_rollback,
+		core_commands::core_search,
+		core_commands::core_project,
+		core_commands::core_versions,
+		core_commands::core_install_content,
+		core_commands::core_install_modpack,
+		core_commands::core_install_game,
+		core_commands::core_launch,
+		core_commands::core_stop,
+		core_commands::core_jobs,
+		core_commands::core_cancel,
+		core_commands::core_game_versions,
+		core_commands::core_loader_versions,
+		core_commands::core_categories,
+		core_commands::core_open_folder,
+		core_commands::pick_instance_icon,
+		core_commands::pick_import_pack,
+		core_commands::core_import_pack,
+		core_commands::pick_export_pack,
+		core_commands::core_export_pack,
+		core_commands::core_editions,
+		core_commands::core_install_edition,
+		core_commands::core_check_edition_update,
+		core_commands::core_apply_edition_update,
 		cancel_login,
 		dev_bridge::__dev_bridge_result
 	]);
@@ -346,8 +428,68 @@ fn run() -> std::result::Result<(), Box<dyn std::error::Error>> {
 		skin,
 		restart_launcher,
 		microsoft_login,
+		core_commands::ely_login,
+		core_commands::core_instances,
+		core_commands::core_create_instance,
+		core_commands::core_edit_instance,
+		core_commands::core_delete_instance,
+		core_commands::core_duplicate_instance,
+		core_commands::core_content,
+		core_commands::core_toggle_content,
+		core_commands::core_remove_content,
+		core_commands::core_check_updates,
+		core_commands::core_update_content,
+		core_commands::core_rollback,
+		core_commands::core_search,
+		core_commands::core_project,
+		core_commands::core_versions,
+		core_commands::core_install_content,
+		core_commands::core_install_modpack,
+		core_commands::core_install_game,
+		core_commands::core_launch,
+		core_commands::core_stop,
+		core_commands::core_jobs,
+		core_commands::core_cancel,
+		core_commands::core_game_versions,
+		core_commands::core_loader_versions,
+		core_commands::core_categories,
+		core_commands::core_open_folder,
+		core_commands::pick_instance_icon,
+		core_commands::pick_import_pack,
+		core_commands::core_import_pack,
+		core_commands::pick_export_pack,
+		core_commands::core_export_pack,
+		core_commands::core_editions,
+		core_commands::core_install_edition,
+		core_commands::core_check_edition_update,
+		core_commands::core_apply_edition_update,
 		cancel_login
 	]);
 	builder.run(tauri::generate_context!())?;
 	Ok(())
+}
+
+#[cfg(test)]
+mod boundary_tests {
+	use super::*;
+
+	#[test]
+	fn deep_links_only_navigate_known_local_routes() {
+		for route in ["home", "library", "content", "accounts", "settings"] {
+			let url = url::Url::parse(&format!("ncreate://{route}/")).expect("route URL");
+			assert_eq!(launcher_route(&url), Some(route));
+		}
+		for value in [
+			"modrinth://library",
+			"ncreate://hosting",
+			"ncreate://content/install",
+			"ncreate://accounts?code=secret",
+			"ncreate://content#install",
+			"ncreate://user:secret@home",
+			"https://home/",
+			"ncreate://home:443/",
+		] {
+			assert!(launcher_route(&url::Url::parse(value).expect("test URL")).is_none());
+		}
+	}
 }

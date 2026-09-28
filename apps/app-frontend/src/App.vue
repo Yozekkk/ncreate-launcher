@@ -1,10 +1,17 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { operationTitle, operationMessage } from './operation-labels'
 import { invoke } from '@tauri-apps/api/core'
 import { getVersion } from '@tauri-apps/api/app'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { enable, disable, isEnabled } from '@tauri-apps/plugin-autostart'
 import AppIcon from './components/AppIcon.vue'
+import ElyLoginDialog from './components/ElyLoginDialog.vue'
+import LibraryPage from './components/LibraryPage.vue'
+import ContentPage from './components/ContentPage.vue'
+import OperationPanel from './components/OperationPanel.vue'
+import { operationPercent, useGameOperations } from './game-operations'
+import { parseLauncherRoute, type Page } from './routes'
 import {
 	editions,
 	type Account,
@@ -14,20 +21,55 @@ import {
 	type Skin,
 	type Snapshot,
 } from './models'
-import { canInstallEdition, installEdition } from './edition-installer'
+import { gameApi, type EditionAvailability } from './game-api'
+import { configureEditionInstaller, canInstallEdition, installEdition } from './edition-installer'
 import { messages } from './i18n'
 
-type Page = 'home' | 'accounts' | 'settings'
 const navigation: { id: Page; label: string; icon: string }[] = [
 	{ id: 'home', label: messages.navigation.home, icon: 'home' },
+	{ id: 'library', label: 'Библиотека', icon: 'folder' },
+	{ id: 'content', label: 'Моды и сборки', icon: 'game' },
 	{ id: 'accounts', label: messages.navigation.accounts, icon: 'accounts' },
 	{ id: 'settings', label: messages.navigation.settings, icon: 'settings' },
 ]
 const page = ref<Page>('home')
+const operations = useGameOperations()
+const routeDetail = ref<string | null>(null)
 const snapshot = ref<Snapshot | null>(null)
 const draft = ref<Settings | null>(null)
 const loading = ref(true)
 const busy = ref(false)
+const editionAvailability = ref<EditionAvailability[]>([])
+const editionModels = computed(() =>
+	editions.map((edition) => {
+		const available = editionAvailability.value.find(
+			(item) => item.id === edition.id && item.available,
+		)
+		return { ...edition, manifest: available?.manifest ? JSON.stringify(available.manifest) : null }
+	}),
+)
+let editionGeneration = 0
+async function loadEditions() {
+	const generation = ++editionGeneration
+	editionAvailability.value = []
+	try {
+		const result = await gameApi.editions(snapshot.value?.settings.release_channel || 'stable')
+		if (mounted && generation === editionGeneration) editionAvailability.value = result
+	} catch {
+		/* No usable manifest keeps editions unavailable. */
+	}
+}
+configureEditionInstaller(async ({ editionId }) => {
+	await operations.track(
+		await gameApi.installEdition(editionId, snapshot.value?.settings.release_channel || 'stable'),
+	)
+	notice.value = 'Установка NCreate началась'
+	return true
+})
+watch(
+	() => snapshot.value?.settings.release_channel,
+	() => void loadEditions(),
+)
 const installingEdition = ref<EditionId | null>(null)
 const error = ref('')
 const notice = ref('')
@@ -41,6 +83,8 @@ watch(notice, (value) => {
 })
 const online = ref(navigator.onLine)
 const authenticating = ref(false)
+const authProvider = ref<'microsoft' | 'ely_by'>('microsoft')
+const elyLoginDialog = ref<InstanceType<typeof ElyLoginDialog> | null>(null)
 const authStage = ref<'browser' | 'minecraft'>('browser')
 const eventCleanup: UnlistenFn[] = []
 let mounted = true
@@ -72,9 +116,11 @@ const usernameValid = (value: string) => /^[A-Za-z0-9_]{3,16}$/.test(value)
 const accountType = (account: Account) =>
 	account.kind === 'microsoft'
 		? 'Microsoft'
-		: skins[account.uuid]?.provider === 'ely_by'
-			? 'Offline / Ely.by skin'
-			: 'Offline'
+		: account.kind === 'ely_by'
+			? 'Ely.by'
+			: skins[account.uuid]?.provider === 'ely_by'
+				? 'Offline / Ely.by skin'
+				: 'Offline'
 const errorMessage = (reason: unknown) =>
 	typeof reason === 'string'
 		? reason
@@ -82,10 +128,14 @@ const errorMessage = (reason: unknown) =>
 			? reason.message
 			: 'Не удалось выполнить действие. Попробуйте ещё раз.'
 
+function showElyLogin() {
+	authProvider.value = 'ely_by'
+	void elyLoginDialog.value?.open()
+}
 function updateRoute() {
-	const route = location.hash.replace(/^#\/?/, '')
-	page.value = route === 'accounts' || route === 'settings' ? route : 'home'
-	if (route && !['home', 'accounts', 'settings'].includes(route)) location.hash = '/home'
+	const route = parseLauncherRoute(location.hash)
+	page.value = route.page
+	routeDetail.value = route.detail
 }
 function focusMain() {
 	document.getElementById('main-content')?.focus()
@@ -146,7 +196,10 @@ function applySnapshot(result: Snapshot) {
 	const pendingSettings = draft.value && settingsChanged.value ? draft.value : null
 	snapshot.value = result
 	if (!pendingSettings || JSON.stringify(pendingSettings) === JSON.stringify(result.settings))
-		draft.value = { ...result.settings }
+		draft.value = {
+			...result.settings,
+			release_channel: result.settings.release_channel || 'stable',
+		}
 	for (const uuid of Object.keys(skins))
 		if (!result.accounts.some((account) => account.uuid === uuid)) {
 			delete skins[uuid]
@@ -228,6 +281,7 @@ async function refreshAccount() {
 }
 async function microsoftLogin() {
 	authenticating.value = true
+	authProvider.value = 'microsoft'
 	authStage.value = 'browser'
 	error.value = ''
 	notice.value = ''
@@ -275,16 +329,20 @@ onMounted(() => {
 	updateRoute()
 	void invoke<string | null>('initial_route')
 		.then((route) => {
-			if (mounted && (route === 'home' || route === 'accounts' || route === 'settings'))
-				setPage(route)
+			if (mounted && route) {
+				const parsed = parseLauncherRoute(route)
+				location.hash = `/${parsed.page}${parsed.detail ? `/${parsed.detail}` : ''}`
+				updateRoute()
+			}
 		})
 		.catch(() => {})
 	window.addEventListener('hashchange', updateRoute)
 	window.addEventListener('online', connectivity)
 	window.addEventListener('offline', connectivity)
 	void listen<string>('ncreate-route', (event) => {
-		if (event.payload === 'home' || event.payload === 'accounts' || event.payload === 'settings')
-			setPage(event.payload)
+		const parsed = parseLauncherRoute(event.payload)
+		location.hash = `/${parsed.page}${parsed.detail ? `/${parsed.detail}` : ''}`
+		updateRoute()
 	})
 		.then((cleanup) => {
 			if (mounted) eventCleanup.push(cleanup)
@@ -372,7 +430,7 @@ onUnmounted(() => {
 			</nav>
 			<div class="sidebar-bottom">
 				<div class="stage-note">
-					<span class="status-dot" /> ПЕРВЫЙ ЭТАП
+					<span class="status-dot" /> ТВОЙ МИР NCREATE
 					<p>Большое приключение<br />начинается здесь.</p>
 				</div>
 				<button v-if="activeAccount" class="active-profile" @click="showAccount(activeAccount)">
@@ -419,6 +477,20 @@ onUnmounted(() => {
 					<AppIcon name="close" :size="16" />
 				</button>
 			</div>
+			<div
+				v-if="operations.error.value && page !== 'library' && page !== 'content'"
+				class="banner error"
+				role="alert"
+			>
+				<span>{{ operations.error.value }}</span
+				><button
+					class="icon-button"
+					aria-label="Закрыть ошибку установки"
+					@click="operations.clearError()"
+				>
+					<AppIcon name="close" :size="16" />
+				</button>
+			</div>
 			<div v-if="notice" class="toast" role="status">
 				<AppIcon name="check" :size="17" />{{ notice
 				}}<button class="icon-button" aria-label="Закрыть уведомление" @click="notice = ''">
@@ -439,6 +511,18 @@ onUnmounted(() => {
 				</button>
 			</div>
 			<template v-else>
+				<OperationPanel
+					v-for="job in page === 'library' || page === 'content' ? [] : operations.active.value"
+					:key="job.id"
+					class="global-operation"
+					:title="operationTitle(job.operation)"
+					:message="operationMessage(job)"
+					:progress="operationPercent(job)"
+					:bytes-per-second="job.phase === 'downloading' ? job.bytes_per_second : undefined"
+					:cancellable="job.cancellable"
+					:cancelling="operations.cancelling.value === job.id"
+					@cancel="operations.cancel(job.id)"
+				/>
 				<section v-if="page === 'home'" class="page home-page">
 					<div class="hero-heading">
 						<div>
@@ -455,7 +539,7 @@ onUnmounted(() => {
 					</div>
 					<div class="edition-grid">
 						<article
-							v-for="edition in editions"
+							v-for="edition in editionModels"
 							:key="edition.id"
 							class="edition-card"
 							:class="[edition.id, { recommended: edition.recommended }]"
@@ -520,13 +604,24 @@ onUnmounted(() => {
 					<div class="home-footer">
 						<AppIcon name="shield" :size="20" />
 						<p>
-							Сейчас знакомимся. Скоро — играем.<span
-								>Сборки появятся в следующем обновлении лаунчера.</span
-							>
+							Твой мир. Твои правила.<span>Сборки появятся в следующем обновлении лаунчера.</span>
 						</p>
 						<span class="release-tag">В РАЗРАБОТКЕ</span>
 					</div>
 				</section>
+				<LibraryPage
+					v-else-if="page === 'library'"
+					:detail="routeDetail"
+					:settings="snapshot.settings"
+					:account-name="activeAccount?.nickname || null"
+					:operations="operations"
+				/>
+				<ContentPage
+					v-else-if="page === 'content'"
+					:detail="routeDetail"
+					:operations="operations"
+					:release-channel="snapshot.settings.release_channel || 'stable'"
+				/>
 				<section v-else-if="page === 'accounts'" class="page accounts-page">
 					<div class="page-heading">
 						<div>
@@ -558,7 +653,25 @@ onUnmounted(() => {
 							Войти через Microsoft<AppIcon name="arrow" :size="18" />
 						</button>
 					</div>
-					<div v-if="authenticating" class="auth-progress" role="status">
+					<div class="auth-panel ely-provider-panel">
+						<div class="ely-provider-icon"><AppIcon name="shield" :size="22" /></div>
+						<div>
+							<h2>Аккаунт Ely.by</h2>
+							<p>Игровой профиль и скины официальной системы Ely.by.</p>
+						</div>
+						<button
+							class="button secondary"
+							:disabled="authenticating || busy || !online"
+							@click="showElyLogin"
+						>
+							Войти в Ely.by<AppIcon name="arrow" :size="17" />
+						</button>
+					</div>
+					<div
+						v-if="authenticating && authProvider === 'microsoft'"
+						class="auth-progress"
+						role="status"
+					>
 						<span class="spinner" />
 						<div>
 							<strong>{{
@@ -631,7 +744,7 @@ onUnmounted(() => {
 											? 'Скин недоступен · резервный аватар'
 											: skins[account.uuid]?.provider === 'ely_by'
 												? 'Скин Ely.by'
-												: account.kind === 'microsoft'
+												: account.kind !== 'offline'
 													? 'Профиль Minecraft'
 													: 'Локальный профиль'
 								}}</span
@@ -704,6 +817,16 @@ onUnmounted(() => {
 							</div>
 							<span class="quiet-badge">Пока недоступно</span>
 						</div>
+						<div class="setting-row">
+							<div>
+								<label for="release-channel">Канал версий</label>
+								<p>Стабильные версии по умолчанию. Beta включается только вручную.</p>
+							</div>
+							<select id="release-channel" v-model="draft.release_channel">
+								<option value="stable">Stable · стабильный</option>
+								<option value="beta">Beta · предварительный</option>
+							</select>
+						</div>
 					</div>
 					<div class="settings-section">
 						<h2><AppIcon name="moon" />Внешний вид</h2>
@@ -755,16 +878,15 @@ onUnmounted(() => {
 						</div>
 					</div>
 					<div class="settings-section">
-						<h2>
-							<AppIcon name="game" />Minecraft <span class="quiet-badge">Для будущих сборок</span>
-						</h2>
+						<h2><AppIcon name="game" />Minecraft</h2>
 						<div class="future-note">
-							Параметры сохраняются. Установка и запуск игры появятся позже.
+							RAM и путь к Java используются при создании своих сборок. Настройки существующих
+							профилей сохраняются отдельно.
 						</div>
 						<div class="setting-row memory-row">
 							<div>
 								<label for="memory">Оперативная память</label>
-								<p>Объём RAM для будущего запуска игры</p>
+								<p>Объём RAM по умолчанию для новых сборок</p>
 							</div>
 							<div class="memory-control">
 								<output for="memory">{{ (draft.memory_mb / 1024).toFixed(1) }} ГБ</output
@@ -790,15 +912,20 @@ onUnmounted(() => {
 							/>
 						</div>
 						<div class="setting-row stacked">
-							<label for="game-directory">Папка игры</label
+							<label for="game-directory">Папка игры · будущая настройка</label
 							><input
 								id="game-directory"
-								v-model="draft.game_directory"
+								:value="`${snapshot.data_dir}/instances`"
+								readonly
 								name="game-directory"
 								autocomplete="off"
 								spellcheck="false"
-								placeholder="Папка NCreate по умолчанию"
+								aria-describedby="game-directory-help"
 							/>
+							<p id="game-directory-help" class="field-help">
+								Сборки хранятся в отдельной папке NCreate. Выбор другой папки появится вместе с
+								безопасным переносом данных.
+							</p>
 						</div>
 					</div>
 					<div class="settings-section compact-section">
@@ -963,7 +1090,7 @@ onUnmounted(() => {
 					>
 						<AppIcon name="check" :size="17" />Сделать активным</button
 					><button
-						v-if="selectedAccount.kind === 'microsoft'"
+						v-if="selectedAccount.kind !== 'offline'"
 						class="button secondary full-width"
 						:disabled="busy || !online"
 						@click="refreshAccount"
@@ -1015,7 +1142,7 @@ onUnmounted(() => {
 				alt="Логотип NCreate"
 			/>
 			<h2 id="about-title">NCreate Launcher</h2>
-			<p class="profile-type">Версия {{ version }} · Первый этап</p>
+			<p class="profile-type">Версия {{ version }} · Библиотека и контент</p>
 			<p>Официальный лаунчер проекта NCreate.</p>
 			<p>
 				Основан на открытом desktop-коде Modrinth App (Theseus). Copyright © Modrinth и участники
@@ -1034,5 +1161,6 @@ onUnmounted(() => {
 				Microsoft.
 			</p>
 		</dialog>
+		<ElyLoginDialog ref="elyLoginDialog" @saved="applySnapshot" @busy="authenticating = $event" />
 	</div>
 </template>
