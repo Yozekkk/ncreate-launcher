@@ -5,10 +5,10 @@
 
 <div align="center">
   <img src="apps/app-frontend/public/brand/logo.webp" alt="Логотип NCreate" width="112" height="112">
-  <h1>NCreate Launcher</h1>
+  <h1>NCreate Launcher v0.5.0 Beta</h1>
   <p>Десктопный Minecraft-лаунчер проекта NCreate для Windows и Linux.</p>
   <p>
-    <img src="https://img.shields.io/badge/%D1%86%D0%B5%D0%BB%D1%8C-v0.5.0-f59e0b?style=flat-square" alt="Цель разработки — v0.5.0">
+    <img src="https://img.shields.io/badge/%D0%B2%D0%B5%D1%80%D1%81%D0%B8%D1%8F-v0.5.0%20Beta-f59e0b?style=flat-square" alt="Версия v0.5.0 Beta">
     <a href="https://github.com/Yozekkk/ncreate-launcher/releases/latest"><img src="https://img.shields.io/github/v/release/Yozekkk/ncreate-launcher?style=flat-square&color=f59e0b&label=%D1%80%D0%B5%D0%BB%D0%B8%D0%B7" alt="Последний опубликованный релиз"></a>
     <img src="https://img.shields.io/badge/Windows-10%20%2F%2011%20x64-555?style=flat-square" alt="Windows 10 и 11 x64">
     <img src="https://img.shields.io/badge/Linux-x64-555?style=flat-square&logo=linux&logoColor=white" alt="Linux x64">
@@ -25,21 +25,20 @@
 ## Скачать
 
 > [!IMPORTANT]
-> **v0.5.0 — цель разработки, а не опубликованный выпуск.** Версия исходного кода в `main` сейчас `0.2.0`. Последний публичный релиз — **v0.1.0 Beta**. Установщики v0.5.0 ещё не опубликованы; ссылки ниже ведут только на существующие файлы v0.1.0. В них пока нет Библиотеки, каталога модов и запуска Minecraft, описанных ниже для текущего исходного кода.
+> [!NOTE]
+> **v0.5.0 Beta** — функциональный лаунчер с Библиотекой, установкой Minecraft и каталогом модов. Официальные сборки NCreate Minimal, Standard и Ultra пока недоступны; другие ограничения перечислены ниже. Установщики появятся на странице релизов после проверки Windows и Linux сборок.
 
-| Платформа                                                       | Доступный файл v0.1.0 Beta         | Скачать                                                                                                                     |
-| :-------------------------------------------------------------- | :--------------------------------- | :-------------------------------------------------------------------------------------------------------------------------- |
-| **Windows 10/11 x64**                                           | `NCreate-Launcher-Setup-0.1.0.exe` | [Установщик Windows](https://github.com/Yozekkk/ncreate-launcher/releases/download/v0.1.0/NCreate-Launcher-Setup-0.1.0.exe) |
-| **Linux x64** — EndeavourOS, Arch, Fedora и другие дистрибутивы | `NCreate-Launcher-0.1.0.AppImage`  | [AppImage](https://github.com/Yozekkk/ncreate-launcher/releases/download/v0.1.0/NCreate-Launcher-0.1.0.AppImage)            |
-| **Debian, Ubuntu, Linux Mint** и совместимые системы            | `NCreate-Launcher-0.1.0-amd64.deb` | [DEB](https://github.com/Yozekkk/ncreate-launcher/releases/download/v0.1.0/NCreate-Launcher-0.1.0-amd64.deb)                |
+| Платформа                                                                | Файл v0.5.0 Beta                   | Скачать                                                                |
+| :----------------------------------------------------------------------- | :--------------------------------- | :--------------------------------------------------------------------- |
+| **Windows 10/11 x64**                                                    | `NCreate-Launcher-Setup-0.5.0.exe` | [Открыть релизы](https://github.com/Yozekkk/ncreate-launcher/releases) |
+| **Linux x64** — EndeavourOS, Arch, Manjaro, Fedora и другие дистрибутивы | `NCreate-Launcher-0.5.0.AppImage`  | [Открыть релизы](https://github.com/Yozekkk/ncreate-launcher/releases) |
+| **Debian, Ubuntu, Linux Mint** и совместимые системы                     | `NCreate-Launcher-0.5.0-amd64.deb` | [Открыть релизы](https://github.com/Yozekkk/ncreate-launcher/releases) |
 
-[Все релизы](https://github.com/Yozekkk/ncreate-launcher/releases) · [Последний релиз](https://github.com/Yozekkk/ncreate-launcher/releases/latest) · [Контрольные суммы опубликованных файлов](https://github.com/Yozekkk/ncreate-launcher/releases/download/v0.1.0/SHA256SUMS.txt)
-
-После публикации v0.5.0 ожидаются файлы `NCreate-Launcher-Setup-0.5.0.exe`, `NCreate-Launcher-0.5.0.AppImage` и `NCreate-Launcher-0.5.0-amd64.deb`. Прямые ссылки на них появятся только после проверки соответствующих сборок и релиза.
+[Все релизы](https://github.com/Yozekkk/ncreate-launcher/releases) · [Последний релиз](https://github.com/Yozekkk/ncreate-launcher/releases/latest)
 
 ## Что нового в v0.5.0
 
-Это **план представления v0.5.0** на основе уже проверенных возможностей исходного кода `main` (`0.2.0`). Он не описывает возможности опубликованных установщиков v0.1.0.
+По сравнению с v0.1.0 лаунчер получил полноценную Библиотеку Minecraft и работу с публичным каталогом модов. Ниже перечислены проверенные возможности и границы их проверки.
 
 - **Библиотека:** отдельные экземпляры Minecraft, создание, переименование, дублирование, импорт и экспорт `.mrpack`.
 - **Игра:** установка и запуск Vanilla и Fabric проверены в Linux. Установка Forge и запуск его процесса также проверены; для Quilt и NeoForge остаются ограничения проверки, указанные ниже.
@@ -47,7 +46,7 @@
 - **Аккаунты:** локальные профили, протоколы входа Microsoft и Ely.by, публичные скины Ely.by.
 - **Подготовка NCreate:** отдельная система манифестов, проверка файлов, управление загрузками и восстановление при неудачном обновлении. Официальные Minimal, Standard и Ultra пока недоступны.
 
-Исходный код прошёл [проверки Linux и Windows](https://github.com/Yozekkk/ncreate-launcher/actions/runs/36422468689). Это не заменяет проверку будущих бинарных файлов v0.5.0.
+Проверки отдельных функций описаны в [отчёте Stage 2](docs/STAGE2-VERIFICATION.md). Успешный вход с реальным аккаунтом Microsoft или Ely.by требует отдельной проверки владельцем.
 
 ## Скриншоты
 
@@ -72,11 +71,11 @@
 
 ## Возможности
 
-В текущем исходном коде доступны отдельные экземпляры Minecraft, поиск модов и сборок, локальные аккаунты и настройки. Библиотека и каталог используют интерфейс NCreate; реклама и вход в аккаунт Modrinth не требуются. В опубликованной v0.1.0 эти возможности ещё отсутствуют.
+В v0.5.0 доступны отдельные экземпляры Minecraft, поиск модов и сборок, локальные аккаунты и настройки. Библиотека и каталог используют интерфейс NCreate; реклама и вход в аккаунт Modrinth не требуются.
 
 ## Библиотека
 
-В текущем исходном коде можно создавать отдельные экземпляры Vanilla, Fabric, Forge и Quilt, менять их название и настройки, дублировать, удалять, импортировать и экспортировать `.mrpack`. Для каждого экземпляра доступны свои моды, объём памяти и путь к Java. Выбор NeoForge также есть, но сквозной запуск конкретной версии ещё не подтверждён: список совместимых версий зависит от доступных метаданных загрузчика.
+Можно создавать отдельные экземпляры Vanilla, Fabric, Forge и Quilt, менять их название и настройки, дублировать, удалять, импортировать и экспортировать `.mrpack`. Для каждого экземпляра доступны свои моды, объём памяти и путь к Java. Выбор NeoForge также есть, но сквозной запуск конкретной версии ещё не подтверждён: список совместимых версий зависит от доступных метаданных загрузчика.
 
 ## Моды и сборки
 
@@ -86,7 +85,7 @@ Modrinth здесь — источник контента. **NCreate Launcher н
 
 ## Аккаунты
 
-| Тип           | Поддержка в текущем исходном коде                                                                                                                                                      |
+| Тип           | Поддержка в v0.5.0 Beta                                                                                                                                                                |
 | :------------ | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Offline**   | Локальный профиль с никнеймом и постоянным детерминированным UUID; создание, переключение и сохранение после перезапуска проверены.                                                    |
 | **Microsoft** | Официальная цепочка входа OAuth/Minecraft реализована; технические проверки и полный синтетический сценарий прошли. Успешный вход с реальным аккаунтом владельца ещё не подтверждён.   |
@@ -102,7 +101,7 @@ Minimal, Standard и Ultra остаются отдельными версиям�
 
 ## Установка
 
-Скачайте **существующий файл v0.1.0** из таблицы выше. Имена v0.5.0 и команды ниже пригодятся после публикации этой версии; до неё заменяйте `0.5.0` на `0.1.0`.
+Выберите файл v0.5.0 для своей системы на странице релиза и установите его по инструкции ниже.
 
 ### Windows 10/11 x64
 
@@ -110,20 +109,23 @@ Minimal, Standard и Ultra остаются отдельными версиям�
 
 ### Linux AppImage
 
-AppImage — рекомендуемый переносимый вариант для EndeavourOS, Arch Linux, Fedora и других современных дистрибутивов. После появления файла v0.5.0 запустите:
+AppImage — рекомендуемый переносимый вариант для EndeavourOS, Arch Linux, Manjaro, Fedora и других современных дистрибутивов. После загрузки файла запустите:
 
 ```bash
 chmod +x NCreate-Launcher-0.5.0.AppImage
 ./NCreate-Launcher-0.5.0.AppImage
 ```
 
+Если файл находится в `~/Загрузки`, сначала перейдите туда командой `cd ~/Загрузки`.
+
 Если в системе нет FUSE 2, можно использовать `APPIMAGE_EXTRACT_AND_RUN=1 ./NCreate-Launcher-0.5.0.AppImage`.
 
 ### Debian, Ubuntu и Linux Mint
 
-DEB предназначен для Debian/Ubuntu-совместимых систем. После появления файла v0.5.0 установите его командой:
+DEB предназначен для Debian/Ubuntu-совместимых систем. После загрузки файла установите его командой:
 
 ```bash
+cd ~/Загрузки
 sudo apt install ./NCreate-Launcher-0.5.0-amd64.deb
 ```
 
@@ -131,21 +133,21 @@ sudo apt install ./NCreate-Launcher-0.5.0-amd64.deb
 
 ### Проверка загруженного файла
 
-Скачайте `SHA256SUMS.txt` из того же релиза и сравните хеш файла со строкой в списке. Например, для доступного AppImage v0.1.0 в Linux:
+Скачайте `SHA256SUMS.txt` из того же релиза и сравните хеш файла со строкой в списке. Например, для AppImage v0.5.0 в Linux:
 
 ```bash
-sha256sum NCreate-Launcher-0.1.0.AppImage
+sha256sum NCreate-Launcher-0.5.0.AppImage
 ```
 
-В Windows для доступного установщика v0.1.0:
+В Windows для установщика v0.5.0:
 
 ```powershell
-Get-FileHash .\NCreate-Launcher-Setup-0.1.0.exe -Algorithm SHA256
+Get-FileHash .\NCreate-Launcher-Setup-0.5.0.exe -Algorithm SHA256
 ```
 
 ## Первый запуск
 
-Следующие шаги относятся к **текущему исходному коду** и будущему выпуску с его возможностями. В публичном v0.1.0 Библиотеки и запуска игры ещё нет.
+После установки:
 
 1. Откройте NCreate Launcher и добавьте аккаунт в разделе **Аккаунты**.
 2. В **Библиотеке** создайте экземпляр Minecraft или импортируйте `.mrpack`.
@@ -180,7 +182,7 @@ pnpm app:dev
 pnpm app:build --bundles appimage,deb
 ```
 
-На Windows используйте `pnpm app:build --bundles nsis`. Исходный код пока имеет версию `0.2.0`; сборка из него **не создаёт установщик v0.5.0**. Подробности — в [руководстве разработчика](docs/DEVELOPMENT.md).
+На Windows используйте `pnpm app:build --bundles nsis`. Подробности — в [руководстве разработчика](docs/DEVELOPMENT.md).
 
 ## Документация
 
@@ -191,7 +193,7 @@ pnpm app:build --bundles appimage,deb
 - [Требования и ограничения](docs/REQUIREMENTS.md)
 - [Публикация релизов](docs/RELEASE.md)
 - [Происхождение исходного кода](docs/UPSTREAM-AUDIT.md)
-- [Подготовленные заметки v0.5.0](docs/releases/v0.5.0.md)
+- [Заметки выпуска v0.5.0](docs/releases/v0.5.0.md)
 
 ## Лицензия и авторство
 

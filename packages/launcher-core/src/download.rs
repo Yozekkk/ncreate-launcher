@@ -263,7 +263,7 @@ impl DownloadManager {
 					.redirect(reqwest::redirect::Policy::none())
 					.connect_timeout(Duration::from_secs(15))
 					.timeout(Duration::from_secs(300))
-					.user_agent("NCreate-Launcher/0.2.0")
+					.user_agent(concat!("NCreate-Launcher/", env!("CARGO_PKG_VERSION")))
 					.resolve_to_addrs(host, &addresses)
 					.build()?;
 				self.clients
