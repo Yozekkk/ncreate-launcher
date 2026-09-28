@@ -5,11 +5,11 @@ Audit covers desktop shell, frontend, application library, API client and
 analytics source. The standalone extraction omits the upstream product
 modules rather than retaining their network clients behind hidden navigation.
 
-## Removed upstream destinations
+## Excluded product destinations
 
 | Destination | Upstream source | Purpose omitted from NCreate |
 | --- | --- | --- |
-| `https://api.modrinth.com` | `apps/app-frontend/src/config.ts:5` | Marketplace and Modrinth user services |
+| Modrinth account, notification, organization, survey and commercial APIs | Upstream API client and frontend | Account/social/commercial services; public content v2 endpoints are permitted below |
 | `https://archon.modrinth.com` | `apps/app-frontend/src/config.ts:8` | Hosting |
 | `https://shared-instances.modrinth.com` | `apps/app-frontend/src/config.ts:11` | Shared instances |
 | `https://api.modrinth.com/appCriticalAnnouncement.json` | `apps/app-frontend/src/App.vue:891` | Product announcements |
@@ -19,8 +19,8 @@ modules rather than retaining their network clients behind hidden navigation.
 | `https://posthog.modrinth.com` | `apps/app-frontend/src/helpers/analytics.ts:68` | Analytics |
 | `https://9508775ee5034536bc70433f5f531dd4@o485889.ingest.us.sentry.io/4504579615227904` | `apps/app-frontend/src/helpers/error-reporting.ts:23` | Remote error reporting |
 | `https://launcher-files.modrinth.com/updates.json` | `apps/app/tauri-release.conf.json:34`, frontend `App.vue:2025` | Original product updater |
-| `https://launcher-meta.modrinth.com` | `packages/api-client/src/modules/launcher-meta/v0.ts:6` | Loader manifest service |
-| `https://cdn.modrinth.com` | `packages/app-lib/src/util/fetch.rs:972` | Marketplace downloads |
+| Modrinth original application update feed | Upstream release configuration | Never used for NCreate application updates |
+| Modrinth advertising/Hosting assets on its CDN | Upstream promotional UI | Promotional requests remain excluded; content icons and verified content downloads are permitted below |
 | `https://cdn.modrinth.com/fonts/minecraft/{regular,italic,bold,bold-italic}.otf` | frontend `assets/stylesheets/global.scss:12–36` | Remote fonts |
 | `https://launcher-files.modrinth.com/assets/steve_head.png` | frontend `components/ui/AccountsCard.vue:26` | Old remote fallback avatar |
 | `https://launcher-files.modrinth.com/assets/maze-bg.png` | frontend `components/ui/LegacyProjectCard.vue:71` | Old product artwork |
@@ -43,7 +43,7 @@ not declared as a Rust module or executed; its original upstream User-Agent
 remains as a source comparison record only.
 Upstream GitHub source links remain only as attribution/documentation.
 
-## Allowed functional requests
+## Allowed authentication and skin requests
 
 | Destination | Use |
 | --- | --- |
@@ -91,11 +91,68 @@ actual Ely.by profile lookup and the avatar rendered inside the desktop WebView.
 That observed successful lookup does not prove all possible names or service
 outage behavior; missing/network cases return local fallback or cached images.
 
+## Stage 2 content and installation requests
+
+All installation and catalog HTTP traffic passes through the Rust engine in
+`packages/launcher-core/src/download.rs`. Public content browsing needs no
+Modrinth account. The frontend admits only `https://cdn.modrinth.com` images;
+it receives skin data URLs and invokes local IPC for search/install actions.
+It has no HTTP, filesystem or shell plugin grants.
+
+| Destination | Purpose |
+| --- | --- |
+| `https://api.modrinth.com/v2/search` | Public mod/modpack search with filters and pagination |
+| `https://api.modrinth.com/v2/project/...` | Public project details, dependencies and compatible versions |
+| `https://api.modrinth.com/v2/version/...` | Exact content versions and file hashes; imported file fingerprint identification |
+| `https://api.modrinth.com/v2/version_files` | Read-only POST of installed artifact SHA-512 hashes, only on explicit update check; no account credentials |
+| `https://api.modrinth.com/v2/tag/...` | Public content categories |
+| `https://cdn.modrinth.com/...` | Project images, hash-verified mods and `.mrpack` files |
+| `https://launcher-meta.modrinth.com/...` | Public upstream Daedalus loader metadata; intentionally retained to reuse upstream loader manifests |
+| `https://piston-meta.mojang.com`, `https://launchermeta.mojang.com` | Minecraft version/asset manifests |
+| `https://piston-data.mojang.com`, `https://launcher.mojang.com` | Hash-verified official Minecraft client files |
+| `https://libraries.minecraft.net`, `https://resources.download.minecraft.net` | Minecraft libraries, natives and asset objects |
+| `https://meta.fabricmc.net`, `https://maven.fabricmc.net` | Fabric metadata/runtime dependencies |
+| `https://meta.quiltmc.org`, `https://maven.quiltmc.org` | Quilt metadata/runtime dependencies |
+| `https://maven.minecraftforge.net`, `https://maven.neoforged.net` | Forge/NeoForge runtime libraries and trusted installer processors |
+| `https://repo.maven.apache.org`, `https://repo1.maven.org` | Runtime Maven dependencies referenced by trusted loader metadata |
+| `https://api.github.com` | Official authlib-injector release metadata and published SHA-256 asset digest |
+| `https://github.com`, `https://raw.githubusercontent.com`, `https://objects.githubusercontent.com`, `https://release-assets.githubusercontent.com` | Public hash-verified content or configured official NCreate manifest distribution |
+| `https://authserver.ely.by` | Ely.by authenticate, validate, refresh and invalidate |
+| `https://account.ely.by/oauth2/v1`, `/api/oauth2/v1/token`, `/api/account/v1/info` | Optional registered Ely.by OAuth application flow |
+
+NCreate manifest source URLs are centralized in `manifest-providers.json` within
+the separate NCreate data directory. Stable and beta maps start empty. No
+production Minimal/Standard/Ultra content is invented. Explicitly configured
+manifest origins must use public HTTPS; private DNS targets, URL credentials,
+plaintext URLs and nonstandard ports are rejected. No shell command may be
+supplied by a downloaded edition manifest.
+
+Loader Maven URLs pointing at the unavailable upstream Maven mirror are mapped
+only for known coordinates to the official Fabric/Quilt/Forge/NeoForge repositories
+or Maven Central. Versions are preserved and SHA1 sidecars are verified. The
+upstream Forge client installer-extract patch is an exception: its metadata
+publishes no checksum sidecar. Only that exact client patch on the trusted
+loader metadata host may be fetched without an input hash, under a 16 MiB
+limit. It is not reused from cache without re-download, and the Forge
+processor's declared output SHA-1 is verified before installation is ready.
+The server-side patch is skipped by the desktop client.
+
+Downloads use manually bounded redirects, declared size/hash checks, temporary
+files and a concurrency limit. Allowed hosts resolve to public addresses and
+TLS connections pin the checked DNS results. `.mrpack` external sources are
+limited to the known public content/CDN hosts. Files are validated against safe
+relative paths, including Windows device names and symlink components.
+
+Native import/export paths are granted only after a native picker selection in
+the main window. Remote authentication windows have no launcher IPC permissions.
+The original Modrinth updater, Hosting, social APIs, ad service, analytics and
+remote crash reporting remain excluded.
+
 ## Privacy boundaries
 
 No PostHog, Sentry, remote crash reporting, Modrinth account login, updater,
-advertising or product startup requests are part of stage one. Account metadata
-and launcher settings are local. Microsoft tokens are kept outside frontend
+advertising or unrelated product startup requests are part of stage two. Account metadata
+and launcher settings are local. Microsoft and Ely.by tokens are kept outside frontend
 state in the operating-system credential store; access and refresh tokens must
 never enter logs. Developer bridge access is development only.
 

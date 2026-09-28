@@ -1,8 +1,9 @@
 # Development and architecture
 
-Официальный desktop-лаунчер NCreate, первый этап. Tauri v2, Rust, Vue 3.
-Minimal, Standard и Ultra представлены в интерфейсе; установка и запуск игры
-отключены до появления официальных manifests. Сторонние сборки не поддерживаются.
+Официальный desktop-лаунчер NCreate. Tauri v2, Rust, Vue 3.
+Stage 2 добавляет отдельную библиотеку пользовательских instances и публичный
+каталог Modrinth. Minimal, Standard и Ultra остаются недоступными до появления
+настоящих официальных manifests.
 
 Это изменённая GPLv3-версия desktop-кода Modrinth App, а не приложение Modrinth.
 Microsoft/Xbox/XSTS/Minecraft pipeline извлечён из актуальной main; серверная
@@ -31,10 +32,10 @@ Wallet/gnome-keyring). Пароли Microsoft не принимаются сам
 ```sh
 pnpm prepr:frontend:app
 pnpm build
-cargo fmt --all --check
-cargo check --locked --workspace --all-targets
-cargo clippy --locked --workspace --all-targets -- -D warnings
-cargo test --locked --workspace
+cargo fmt --package ncreate-launcher --package ncreate-app-lib --package ncreate-launcher-core --check
+cargo check --locked -p ncreate-launcher -p ncreate-app-lib -p ncreate-launcher-core --all-targets
+cargo clippy --locked -p ncreate-launcher -p ncreate-app-lib -p ncreate-launcher-core --all-targets --no-deps -- -D warnings
+cargo test --locked -p ncreate-launcher -p ncreate-app-lib -p ncreate-launcher-core
 pnpm app:build --bundles appimage,deb
 ```
 
@@ -43,8 +44,8 @@ Windows NSIS собирается workflow на Windows x64. [Инсталлят
 Updater отключён до настройки собственных signing keys. Modrinth updater не подключён.
 
 `scripts/build.mjs` присваивает готовым пакетам имена
-`NCreate-Launcher-0.1.0.AppImage`, `NCreate-Launcher-0.1.0-amd64.deb` и
-`NCreate-Launcher-Setup-0.1.0.exe`. На Linux wrapper задаёт `NO_STRIP=true`:
+`NCreate-Launcher-<version>.AppImage`, `NCreate-Launcher-<version>-amd64.deb` и
+`NCreate-Launcher-Setup-<version>.exe`. На Linux wrapper задаёт `NO_STRIP=true`:
 старый `strip` внутри linuxdeploy не поддерживает RELR-секции современных
 библиотек Arch. Собственный Rust binary уже обрабатывается release-профилем.
 Локальная сборка EndeavourOS использует текущий glibc этой системы и не
@@ -64,17 +65,19 @@ Offline UUID: Java-совместимый MD5 `OfflinePlayer:<nickname>` с UUID
 регистр символов значим. Переименование меняет UUID и локальную identity.
 Скины Offline доступны через публичный Ely.by Skin System, без пароля. Запросы
 выполняет Rust; PNG проверяется и кешируется. Fallback — локальный Steve.
-Skin providers: Mojang, Ely.by, Fallback. Полная Ely.by authentication и внедрение
-скина в игру относятся к следующему этапу.
+Skin providers: Mojang, Ely.by, Fallback. Stage 2 отделяет AccountProvider от GameIdentity, SkinProvider и
+CredentialReference. Ely.by authentication использует официальные endpoints;
+токены остаются в native keyring, пароль не записывается на диск.
 
 Edition definitions: `apps/app-frontend/src/models.ts`. Все manifests сейчас `null`.
-Будущее подключение установки регистрирует `configureEditionInstaller(handler)`
+Подключение установки регистрирует `configureEditionInstaller(handler)`
 из `apps/app-frontend/src/edition-installer.ts` и назначает доверенный manifest
 нужной edition. UI уже выводит доступность и прогресс через этот adapter. Без
-обработчика и manifest кнопка остаётся disabled; настоящий backend установки
-в первом этапе отсутствует.
+обработчика и manifest кнопка остаётся disabled; production manifest URLs отсутствуют.
+Backend установки находится в `packages/launcher-core`. См.
+[Stage 2 architecture](STAGE2-ARCHITECTURE.md).
 
-## Проверка интерфейса
+## Проверка интерфейса и история v0.1.0
 
 Development bridge для `tauri-agent-tools` собирается только с `debug_assertions`;
 в production его модуль и IPC-команда отсутствуют. Локальные screenshots/logs

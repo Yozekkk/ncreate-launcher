@@ -116,6 +116,8 @@ Offline profiles do not grant access to servers that require a licensed Microsof
 
 Official pack manifests, download and launch support will arrive in a later release. No third-party packs are installed.
 
+> **Stage 2 development:** the current source adds a custom instance library, public Modrinth content and a managed edition engine. The public downloads above remain v0.1.0 Beta. See [Stage 2 architecture](docs/STAGE2-ARCHITECTURE.md) and [verification](docs/STAGE2-VERIFICATION.md) for source-build support and limitations.
+
 ## Development
 
 Requires Node.js 22.12+, pnpm 10.30.3, stable Rust and the [Linux desktop prerequisites](docs/DEVELOPMENT.md).
