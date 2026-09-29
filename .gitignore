@@ -5,6 +5,7 @@ target/
 .env.*
 !*.example
 verification/
+release-assets/
 *.log
 .DS_Store
 apps/app/gen/

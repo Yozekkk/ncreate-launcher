@@ -115,14 +115,18 @@ It has no HTTP, filesystem or shell plugin grants.
 | `https://meta.quiltmc.org`, `https://maven.quiltmc.org` | Quilt metadata/runtime dependencies |
 | `https://maven.minecraftforge.net`, `https://maven.neoforged.net` | Forge/NeoForge runtime libraries and trusted installer processors |
 | `https://repo.maven.apache.org`, `https://repo1.maven.org` | Runtime Maven dependencies referenced by trusted loader metadata |
-| `https://api.github.com` | Official authlib-injector release metadata and published SHA-256 asset digest |
-| `https://github.com`, `https://raw.githubusercontent.com`, `https://objects.githubusercontent.com`, `https://release-assets.githubusercontent.com` | Public hash-verified content or configured official NCreate manifest distribution |
+| `https://api.github.com` | Official authlib-injector release metadata and NCreate Launcher release discovery as JSON; no HTML scraping |
+| `https://github.com/Yozekkk/ncreate-launcher/releases/download/...` | Signed launcher update metadata and AppImage/NSIS artifacts; the Tauri updater verifies the signature before installation |
+| `https://raw.githubusercontent.com/Yozekkk/ncreate-manifests/main/channels/...` | Stable/Beta Minimal, Standard and Ultra manifests; HTTP 404 means no pack has been published |
+| `https://github.com/Yozekkk/ncreate-manifests/releases/download/...` | Immutable, SHA-256-verified official pack files |
+| `https://objects.githubusercontent.com`, `https://release-assets.githubusercontent.com` | HTTPS redirects for GitHub release assets |
 | `https://authserver.ely.by` | Ely.by authenticate, validate, refresh and invalidate |
 | `https://account.ely.by/oauth2/v1`, `/api/oauth2/v1/token`, `/api/account/v1/info` | Optional registered Ely.by OAuth application flow |
 
-NCreate manifest source URLs are centralized in `manifest-providers.json` within
-the separate NCreate data directory. Stable and beta maps start empty. No
-production Minimal/Standard/Ultra content is invented. Explicitly configured
+NCreate manifest source URLs default to the six public GitHub channel paths above.
+An explicitly saved `manifest-providers.json` in the separate NCreate data
+directory overrides that default. No production Minimal/Standard/Ultra content
+is invented. Explicitly configured
 manifest origins must use public HTTPS; private DNS targets, URL credentials,
 plaintext URLs and nonstandard ports are rejected. No shell command may be
 supplied by a downloaded edition manifest.
@@ -150,8 +154,11 @@ remote crash reporting remain excluded.
 
 ## Privacy boundaries
 
-No PostHog, Sentry, remote crash reporting, Modrinth account login, updater,
-advertising or unrelated product startup requests are part of stage two. Account metadata
+No PostHog, Sentry, remote crash reporting, Modrinth account login,
+advertising or unrelated product startup requests are part of NCreate. The
+Stage 3 launcher updater contacts only GitHub's public release API and release
+assets, and only when automatic checking is enabled or the user checks manually.
+Account metadata
 and launcher settings are local. Microsoft and Ely.by tokens are kept outside frontend
 state in the operating-system credential store; access and refresh tokens must
 never enter logs. Developer bridge access is development only.

@@ -51,6 +51,8 @@ jobs:
         run: pnpm prepr:frontend:app
       - name: Frontend production build
         run: pnpm build
+      - name: Release metadata tests
+        run: node --test scripts/release-assets.test.mjs
       - name: Rust formatting
         run: cargo fmt --package ncreate-launcher --package ncreate-app-lib --package ncreate-launcher-core --check
       - name: Rust check
@@ -62,7 +64,7 @@ jobs:
       - name: Native and network boundary audit
         run: node scripts/check-stage2-boundary.mjs
       - name: Build desktop installers
-        run: pnpm app:build --bundles ${{ matrix.bundles }}
+        run: pnpm app:build --bundles ${{ matrix.bundles }} --config tauri.ci.conf.json
       - uses: actions/upload-artifact@v4
         with:
           name: desktop-${{ runner.os }}-${{ github.sha }}

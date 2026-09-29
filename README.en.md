@@ -96,7 +96,7 @@ Offline and Ely.by profiles do not grant access to servers that require a licens
 
 Minimal, Standard, and Ultra remain distinct NCreate editions. Their cards appear on Home, but installation buttons are disabled: **the official NCreate packs are still in preparation**. Manifest and update handling passed fixture tests; production manifests have not been published.
 
-Automatic launcher updates are currently disabled until signed NCreate releases are available.
+The public v0.5.0 binary has no self-updater. The current `main` branch prepares a signed updater with Stable/Beta channels; it will become active after the next signed release. Users of the installed v0.5.0 build will need to download that installer once. Official packs will be discovered through the [separate manifest repository](https://github.com/Yozekkk/ncreate-manifests) when real releases are published there.
 
 ## Installation
 
@@ -191,6 +191,7 @@ On Windows, use `pnpm app:build --bundles nsis`. See the [development guide](doc
 - [Stage 2 verification](docs/STAGE2-VERIFICATION.md)
 - [Requirements and limitations](docs/REQUIREMENTS.md)
 - [Release process](docs/RELEASE.md)
+- [Launcher and official pack updates](docs/UPDATES.md)
 - [Upstream source audit](docs/UPSTREAM-AUDIT.md)
 - [v0.5.0 release notes](docs/releases/v0.5.0.en.md)
 

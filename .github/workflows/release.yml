@@ -65,31 +65,25 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm prepr:frontend:app
       - run: pnpm build
+      - run: node --test scripts/release-assets.test.mjs
       - run: cargo fmt --package ncreate-launcher --package ncreate-app-lib --package ncreate-launcher-core --check
       - run: cargo check --locked -p ncreate-launcher -p ncreate-app-lib -p ncreate-launcher-core --all-targets
       - run: cargo clippy --locked -p ncreate-launcher -p ncreate-app-lib -p ncreate-launcher-core --all-targets --no-deps -- -D warnings
       - run: cargo test --locked -p ncreate-launcher -p ncreate-app-lib -p ncreate-launcher-core
       - run: node scripts/check-stage2-boundary.mjs
       - name: Build production installers
-        run: pnpm app:build --bundles ${{ matrix.bundles }}
-      - name: Stage named release artifacts
         shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
-          node --input-type=module <<'JS'
-          import fs from 'node:fs';
-          import path from 'node:path';
-          const version = process.env.GITHUB_REF_NAME.slice(1);
-          fs.mkdirSync('release-assets', { recursive: true });
-          const formats = process.platform === 'win32'
-            ? [['nsis', '.exe', `NCreate-Launcher-Setup-${version}.exe`]]
-            : [['appimage', '.AppImage', `NCreate-Launcher-${version}.AppImage`], ['deb', '.deb', `NCreate-Launcher-${version}-amd64.deb`]];
-          for (const [folder, extension, output] of formats) {
-            const dir = path.join('target', 'release', 'bundle', folder);
-            const files = fs.readdirSync(dir).filter(file => file.endsWith(extension));
-            if (files.length !== 1) throw new Error(`Expected one ${extension} artifact, found ${files.length}`);
-            fs.copyFileSync(path.join(dir, files[0]), path.join('release-assets', output));
-          }
-          JS
+          if [[ -z "$TAURI_SIGNING_PRIVATE_KEY" || -z "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" ]]; then
+            echo 'Updater signing secrets are required for release builds.' >&2
+            exit 1
+          fi
+          pnpm app:build --bundles ${{ matrix.bundles }}
+      - name: Stage named release artifacts
+        run: node scripts/release-assets.mjs stage
       - uses: actions/upload-artifact@v4
         with:
           name: release-${{ runner.os }}
@@ -104,6 +98,9 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
       - uses: actions/download-artifact@v4
         with:
           pattern: release-*
@@ -113,9 +110,11 @@ jobs:
         env:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
+          node scripts/release-assets.mjs metadata
           git archive --format=tar.gz --prefix="ncreate-launcher-${RELEASE_TAG}/" --output="release-assets/NCreate-Launcher-${RELEASE_TAG}-source.tar.gz" HEAD
           cd release-assets
           sha256sum * > SHA256SUMS.txt
+          sha256sum -c SHA256SUMS.txt
       - name: Publish complete beta release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -127,14 +126,18 @@ jobs:
           import path from 'node:path';
           import { createHash } from 'node:crypto';
           import { execFileSync } from 'node:child_process';
+          import { releaseChannel } from './scripts/release-assets.mjs';
           const tag = process.env.RELEASE_TAG;
           const repository = process.env.GITHUB_REPOSITORY;
           const version = tag.slice(1);
           const expected = [
             `NCreate-Launcher-Setup-${version}.exe`,
+            `NCreate-Launcher-Setup-${version}.exe.sig`,
             `NCreate-Launcher-${version}.AppImage`,
+            `NCreate-Launcher-${version}.AppImage.sig`,
             `NCreate-Launcher-${version}-amd64.deb`,
             `NCreate-Launcher-${tag}-source.tar.gz`,
+            'latest.json',
             'SHA256SUMS.txt',
           ];
           const gh = args => execFileSync('gh', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
@@ -142,25 +145,32 @@ jobs:
           const releaseState = () => JSON.parse(gh(['api', '--paginate', '--slurp', `repos/${repository}/releases?per_page=100`]))
             .flat()
             .find(release => release.tag_name === tag) ?? null;
+          for (const name of expected) {
+            const file = path.join('release-assets', name);
+            if (!fs.statSync(file).isFile() || fs.statSync(file).size === 0) throw new Error(`Missing or empty release asset: ${name}`);
+          }
+          const notesPath = path.join('docs', 'releases', `${tag}.md`);
+          const notes = fs.existsSync(notesPath)
+            ? fs.readFileSync(notesPath, 'utf8')
+            : `# NCreate Launcher ${tag}\n\nWindows x64 and Linux x64 desktop packages, corresponding source and SHA256 checksums are attached.\n`;
+          const title = notes.match(/^# (.+)$/m)?.[1] ?? `NCreate Launcher ${tag}`;
+          const channel = releaseChannel(tag, title);
+          const metadata = JSON.parse(fs.readFileSync(path.join('release-assets', 'latest.json'), 'utf8'));
+          if (metadata.version !== version || metadata.channel !== channel) throw new Error('Updater metadata does not match release version/channel');
           let release = releaseState();
           if (release && !release.draft) {
-            console.log(`Release ${tag} is already published; leaving its metadata and assets unchanged.`);
+            const missing = expected.filter(name => !release.assets.some(asset => asset.name === name));
+            if (missing.length) throw new Error(`Published release ${tag} is missing assets: ${missing.join(', ')}`);
+            if (release.prerelease !== (channel === 'beta')) throw new Error(`Published release ${tag} has the wrong update channel`);
+            console.log(`Release ${tag} is already published with all expected assets.`);
           } else {
-            for (const name of expected) {
-              if (!fs.statSync(path.join('release-assets', name)).isFile()) throw new Error(`Missing release asset: ${name}`);
-            }
-            const notesPath = path.join('docs', 'releases', `${tag}.md`);
-            const notes = fs.existsSync(notesPath)
-              ? fs.readFileSync(notesPath, 'utf8')
-              : `# NCreate Launcher ${tag}\n\nWindows x64 and Linux x64 desktop packages, corresponding source and SHA256 checksums are attached.\n`;
-            const title = notes.match(/^# (.+)$/m)?.[1] ?? `NCreate Launcher ${tag}`;
             const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'ncreate-release-'));
             try {
               const body = path.join(temporary, 'notes.md');
               fs.writeFileSync(body, notes);
               if (!release) {
                 const args = ['release', 'create', tag, '--verify-tag', '--draft', '--title', title, '--notes-file', body];
-                if (tag.includes('-')) args.push('--prerelease');
+                if (channel === 'beta') args.push('--prerelease');
                 gh(args);
                 release = releaseState();
                 if (!release?.draft) throw new Error('Expected an unpublished draft release');
@@ -179,7 +189,17 @@ jobs:
               if (!complete?.draft || !expected.every(name => complete.assets.some(asset => asset.name === name))) {
                 throw new Error('Release asset verification failed; draft remains unpublished');
               }
-              gh(['release', 'edit', tag, '--draft=false', `--prerelease=${tag.includes('-')}`, '--title', title, '--notes-file', body]);
+              for (const name of expected) {
+                const asset = complete.assets.find(item => item.name === name);
+                const local = path.join('release-assets', name);
+                if (asset.size !== fs.statSync(local).size) throw new Error(`Published asset size mismatch: ${name}`);
+                if (asset.digest !== `sha256:${digest(local)}`) {
+                  const downloaded = path.join(temporary, name);
+                  if (!fs.existsSync(downloaded)) gh(['release', 'download', tag, '--pattern', name, '--dir', temporary]);
+                  if (digest(local) !== digest(downloaded)) throw new Error(`Published asset digest mismatch: ${name}`);
+                }
+              }
+              gh(['release', 'edit', tag, '--draft=false', `--prerelease=${channel === 'beta'}`, '--title', title, '--notes-file', body]);
               console.log(`Published ${title} with all required assets.`);
             } finally {
               fs.rmSync(temporary, { recursive: true, force: true });
