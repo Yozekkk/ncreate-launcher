@@ -2,6 +2,7 @@
 use crate::{AppState, local, storage::Result};
 use semver::Version;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::time::{Duration, Instant};
 use tauri::Emitter;
 use tauri_plugin_updater::{Update, UpdaterExt};
@@ -55,7 +56,8 @@ struct Candidate {
 pub struct PendingUpdate {
 	channel: String,
 	update: Update,
-	size_bytes: Option<u64>,
+	size_bytes: u64,
+	sha256: String,
 }
 
 #[derive(Serialize)]
@@ -178,8 +180,25 @@ fn validate_metadata(bytes: &[u8], candidate: &Candidate) -> Result<serde_json::
 		{
 			return Err("Некорректный размер обновления".into());
 		}
+		if platform
+			.get("sha256")
+			.and_then(serde_json::Value::as_str)
+			.is_none_or(|hash| {
+				hash.len() != 64 || !hash.bytes().all(|byte| byte.is_ascii_hexdigit())
+			}) {
+			return Err("Нет контрольной суммы обновления".into());
+		}
 	}
 	Ok(value)
+}
+
+fn verify_update_bytes(bytes: &[u8], size: u64, sha256: &str) -> Result<()> {
+	if bytes.len() as u64 != size
+		|| !format!("{:x}", Sha256::digest(bytes)).eq_ignore_ascii_case(sha256)
+	{
+		return Err("Размер или контрольная сумма обновления не совпадает".into());
+	}
+	Ok(())
 }
 
 fn github_client() -> Result<reqwest::Client> {
@@ -304,22 +323,31 @@ pub async fn launcher_check_update(
 	github_asset_url(update.download_url.as_str())?;
 	let target = tauri_plugin_updater::target()
 		.ok_or_else(|| "Платформа не поддерживает обновление".to_string())?;
-	let size_bytes = value
+	let platform = value
 		.get("platforms")
 		.and_then(|platforms| platforms.get(&target))
-		.and_then(|platform| platform.get("size"))
-		.and_then(serde_json::Value::as_u64);
+		.ok_or_else(|| "Для этой платформы нет обновления".to_string())?;
+	let size_bytes = platform
+		.get("size")
+		.and_then(serde_json::Value::as_u64)
+		.ok_or_else(|| "Некорректный размер обновления".to_string())?;
+	let sha256 = platform
+		.get("sha256")
+		.and_then(serde_json::Value::as_str)
+		.ok_or_else(|| "Нет контрольной суммы обновления".to_string())?
+		.to_owned();
 	let info = UpdateInfo {
 		available: true,
 		current_version,
 		version: Some(update.version.clone()),
 		notes: update.body.clone(),
-		size_bytes,
+		size_bytes: Some(size_bytes),
 	};
 	*state.pending_update.lock().await = Some(PendingUpdate {
 		channel: channel.as_str().into(),
 		update,
 		size_bytes,
+		sha256,
 	});
 	Ok(info)
 }
@@ -349,7 +377,7 @@ pub async fn launcher_install_update(
 	let started = Instant::now();
 	let mut downloaded_bytes = 0_u64;
 	let mut last_emit = Instant::now() - Duration::from_secs(1);
-	let total_bytes = pending.size_bytes;
+	let total_bytes = Some(pending.size_bytes);
 	let progress_app = app.clone();
 	let bytes = pending
 		.update
@@ -391,6 +419,20 @@ pub async fn launcher_install_update(
 			);
 			message
 		})?;
+	if let Err(message) = verify_update_bytes(&bytes, pending.size_bytes, &pending.sha256) {
+		let _ = app.emit_to(
+			"main",
+			"launcher-update-progress",
+			UpdateProgress {
+				phase: "error",
+				downloaded_bytes: bytes.len() as u64,
+				total_bytes,
+				bytes_per_second: None,
+				message: Some(message.clone()),
+			},
+		);
+		return Err(message);
+	}
 	let _ = app.emit_to(
 		"main",
 		"launcher-update-progress",
@@ -508,7 +550,7 @@ mod tests {
 		)
 		.unwrap()
 		.unwrap();
-		let mut metadata = serde_json::json!({"version":"0.6.0","channel":"stable","platforms":{"linux-x86_64":{"url":"https://github.com/Yozekkk/ncreate-launcher/releases/download/v0.6.0/app.AppImage","signature":"signed","size":100}}});
+		let mut metadata = serde_json::json!({"version":"0.6.0","channel":"stable","platforms":{"linux-x86_64":{"url":"https://github.com/Yozekkk/ncreate-launcher/releases/download/v0.6.0/app.AppImage","signature":"signed","size":100,"sha256":"0000000000000000000000000000000000000000000000000000000000000000"}}});
 		assert!(validate_metadata(metadata.to_string().as_bytes(), &candidate).is_ok());
 		metadata["channel"] = "beta".into();
 		assert!(validate_metadata(metadata.to_string().as_bytes(), &candidate).is_err());
@@ -520,6 +562,17 @@ mod tests {
 				.into();
 		metadata["platforms"]["linux-x86_64"]["size"] = (MAX_UPDATE_BYTES + 1).into();
 		assert!(validate_metadata(metadata.to_string().as_bytes(), &candidate).is_err());
+		metadata["platforms"]["linux-x86_64"]["size"] = 100.into();
+		metadata["platforms"]["linux-x86_64"]["sha256"] = "bad".into();
+		assert!(validate_metadata(metadata.to_string().as_bytes(), &candidate).is_err());
+	}
+	#[test]
+	fn downloaded_update_requires_exact_size_and_sha256() {
+		let bytes = b"signed updater fixture";
+		let hash = format!("{:x}", Sha256::digest(bytes));
+		assert!(verify_update_bytes(bytes, bytes.len() as u64, &hash).is_ok());
+		assert!(verify_update_bytes(bytes, bytes.len() as u64 + 1, &hash).is_err());
+		assert!(verify_update_bytes(b"altered", bytes.len() as u64, &hash).is_err());
 	}
 	#[test]
 	fn configured_public_key_accepts_signed_fixture_and_rejects_tampering() {

@@ -36,6 +36,7 @@ scopeguard = "1"
 rand = "0.8"
 tauri-plugin-updater = "2.13.0"
 semver = "1"
+sha2 = "0.10"
 [build-dependencies]
 tauri-build = { version = "2.6.3", features = [] }
 [target.'cfg(unix)'.dependencies]
