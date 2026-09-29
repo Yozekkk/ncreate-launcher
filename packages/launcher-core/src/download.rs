@@ -62,6 +62,10 @@ impl Operation {
 		s.bytes_per_second = 0;
 		s.message = message.into();
 	}
+	pub(crate) fn edition_files_remaining(&self, remaining: usize, total: usize) {
+		self.state.lock().unwrap_or_else(|e| e.into_inner()).message =
+			format!("Осталось файлов: {remaining} из {total}");
+	}
 	fn register_transfer(&self, key: &str, size: u64) {
 		let mut stats = self.transfers.lock().unwrap_or_else(|e| e.into_inner());
 		stats.started.get_or_insert_with(std::time::Instant::now);
@@ -89,7 +93,12 @@ impl Operation {
 		state.completed = completed;
 		state.total = total;
 		state.bytes_per_second = speed;
-		state.message = "Downloading verified game files".into();
+		if !matches!(
+			state.operation.as_str(),
+			"install_edition" | "update_edition"
+		) {
+			state.message = "Downloading verified game files".into();
+		}
 	}
 	fn checking(&self) {
 		let mut progress = self.state.lock().unwrap_or_else(|e| e.into_inner());
@@ -124,10 +133,11 @@ impl Operation {
 		progress
 	}
 	pub(crate) fn committing(&self) {
-		self.state
-			.lock()
-			.unwrap_or_else(|e| e.into_inner())
-			.cancellable = false;
+		let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+		state.cancellable = false;
+		state.phase = "committing".into();
+		state.bytes_per_second = 0;
+		state.message = "Сохраняем проверенные файлы".into();
 	}
 }
 #[derive(Clone)]

@@ -236,6 +236,27 @@ pub struct ManifestProviders {
 	pub stable: BTreeMap<String, String>,
 	pub beta: BTreeMap<String, String>,
 }
+impl ManifestProviders {
+	pub fn github_ncreate() -> Self {
+		fn channel(name: &str) -> BTreeMap<String, String> {
+			["minimal", "standard", "ultra"]
+				.into_iter()
+				.map(|id| {
+					(
+						id.into(),
+						format!(
+							"https://raw.githubusercontent.com/Yozekkk/ncreate-manifests/main/channels/{name}/{id}.json"
+						),
+					)
+				})
+				.collect()
+		}
+		Self {
+			stable: channel("stable"),
+			beta: channel("beta"),
+		}
+	}
+}
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct EditionAvailability {
 	pub id: String,
@@ -252,6 +273,8 @@ pub struct UpdatePlan {
 	pub added: Vec<String>,
 	pub changed: Vec<String>,
 	pub removed: Vec<String>,
+	#[serde(default)]
+	pub unchanged: Vec<String>,
 	pub conflicts: Vec<String>,
 	pub changelog: String,
 	pub download_bytes: u64,

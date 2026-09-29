@@ -76,15 +76,24 @@ async fn official_install_diff_update_restart_rollback_preserves_users() {
 	configure(&e).await;
 	let v1 = manifest(
 		"1.0.0",
-		&[("mods/a.jar", b"one"), ("config/removed.json", b"old")],
+		&[
+			("mods/a.jar", b"one"),
+			("config/removed.json", b"old"),
+			("config/retained.json", b"same"),
+		],
 	);
 	install_manifest(
 		&e,
 		&v1,
-		&[("mods/a.jar", b"one"), ("config/removed.json", b"old")],
+		&[
+			("mods/a.jar", b"one"),
+			("config/removed.json", b"old"),
+			("config/retained.json", b"same"),
+		],
 	);
 	let op = e.begin("install", None);
 	let i = e.install_edition("standard", "stable", &op).await.unwrap();
+	assert!(!e.rollback_available(&i.id).await.unwrap());
 	let root = Path::new(&i.directory);
 	for (path, data) in [
 		("saves/world/level.dat", b"world".as_slice()),
@@ -100,17 +109,26 @@ async fn official_install_diff_update_restart_rollback_preserves_users() {
 	}
 	let v2 = manifest(
 		"2.0.0",
-		&[("mods/a.jar", b"two"), ("config/new.json", b"new")],
+		&[
+			("mods/a.jar", b"two"),
+			("config/new.json", b"new"),
+			("config/retained.json", b"same"),
+		],
 	);
 	install_manifest(
 		&e,
 		&v2,
-		&[("mods/a.jar", b"two"), ("config/new.json", b"new")],
+		&[
+			("mods/a.jar", b"two"),
+			("config/new.json", b"new"),
+			("config/retained.json", b"same"),
+		],
 	);
 	let plan = e.check_edition_update(&i.id, "stable").await.unwrap();
 	assert_eq!(plan.added, vec!["config/new.json"]);
 	assert_eq!(plan.changed, vec!["mods/a.jar"]);
 	assert_eq!(plan.removed, vec!["config/removed.json"]);
+	assert_eq!(plan.unchanged, vec!["config/retained.json"]);
 	assert_eq!(plan.download_bytes, 6);
 	assert_eq!(
 		e.downloads
@@ -120,6 +138,12 @@ async fn official_install_diff_update_restart_rollback_preserves_users() {
 	assert!(plan.conflicts.is_empty());
 	let op = e.begin("update", Some(&i.id));
 	e.apply_edition_update(&i.id, "stable", &op).await.unwrap();
+	assert_eq!(
+		e.downloads
+			.fixture_count("https://cdn.modrinth.com/2.0.0/config/retained.json"),
+		0
+	);
+	assert!(e.rollback_available(&i.id).await.unwrap());
 	assert_eq!(
 		tokio::fs::read(root.join("mods/a.jar")).await.unwrap(),
 		b"two"
@@ -137,7 +161,20 @@ async fn official_install_diff_update_restart_rollback_preserves_users() {
 			.as_deref(),
 		Some("2.0.0")
 	);
+	tokio::fs::write(root.join("mods/a.jar"), b"user changed updated mod")
+		.await
+		.unwrap();
+	let conflict = restarted.rollback(&i.id).await.unwrap_err();
+	assert!(conflict.to_string().contains("modified user file"));
+	assert_eq!(
+		tokio::fs::read(root.join("mods/a.jar")).await.unwrap(),
+		b"user changed updated mod"
+	);
+	tokio::fs::write(root.join("mods/a.jar"), b"two")
+		.await
+		.unwrap();
 	restarted.rollback(&i.id).await.unwrap();
+	assert!(!restarted.rollback_available(&i.id).await.unwrap());
 	assert_eq!(
 		tokio::fs::read(root.join("mods/a.jar")).await.unwrap(),
 		b"one"
@@ -209,6 +246,87 @@ async fn hash_failure_and_modified_user_files_do_not_apply_update() {
 			.await
 			.unwrap(),
 		b"user edit"
+	);
+}
+#[tokio::test]
+async fn damaged_rollback_snapshot_never_replaces_current_files() {
+	let (dir, e) = engine().await;
+	configure(&e).await;
+	let v1 = manifest("1", &[("mods/a.jar", b"one")]);
+	install_manifest(&e, &v1, &[("mods/a.jar", b"one")]);
+	let instance = e
+		.install_edition("standard", "stable", &e.begin("install_edition", None))
+		.await
+		.unwrap();
+	let v2 = manifest("2", &[("mods/a.jar", b"two")]);
+	install_manifest(&e, &v2, &[("mods/a.jar", b"two")]);
+	e.apply_edition_update(&instance.id, "stable", &e.begin("update_edition", None))
+		.await
+		.unwrap();
+	let row: String =
+		sqlx::query_scalar("SELECT data FROM launcher_jobs ORDER BY rowid DESC LIMIT 1")
+			.fetch_one(&e.pool)
+			.await
+			.unwrap();
+	let journal: Value = serde_json::from_str(&row).unwrap();
+	let snapshot = dir
+		.path()
+		.join("transactions")
+		.join(journal["id"].as_str().unwrap())
+		.join("backup/mods/a.jar");
+	assert!(e.rollback_available(&instance.id).await.unwrap());
+	tokio::fs::write(&snapshot, b"broken snapshot")
+		.await
+		.unwrap();
+	assert!(e.rollback(&instance.id).await.is_err());
+	assert_eq!(
+		tokio::fs::read(Path::new(&instance.directory).join("mods/a.jar"))
+			.await
+			.unwrap(),
+		b"two"
+	);
+	assert_eq!(
+		e.instance(&instance.id)
+			.await
+			.unwrap()
+			.manifest_version
+			.as_deref(),
+		Some("2")
+	);
+	tokio::fs::remove_file(snapshot).await.unwrap();
+	assert!(!e.rollback_available(&instance.id).await.unwrap());
+}
+#[tokio::test]
+async fn cancelled_official_update_keeps_previous_manifest_and_files() {
+	let (_dir, e) = engine().await;
+	configure(&e).await;
+	let v1 = manifest("1", &[("mods/a.jar", b"one")]);
+	install_manifest(&e, &v1, &[("mods/a.jar", b"one")]);
+	let instance = e
+		.install_edition("standard", "stable", &e.begin("install_edition", None))
+		.await
+		.unwrap();
+	let v2 = manifest("2", &[("mods/a.jar", b"two")]);
+	install_manifest(&e, &v2, &[("mods/a.jar", b"two")]);
+	let op = e.begin("update_edition", Some(&instance.id));
+	e.cancel(&op.id()).unwrap();
+	assert!(matches!(
+		e.apply_edition_update(&instance.id, "stable", &op).await,
+		Err(Error::Cancelled)
+	));
+	assert_eq!(
+		tokio::fs::read(Path::new(&instance.directory).join("mods/a.jar"))
+			.await
+			.unwrap(),
+		b"one"
+	);
+	assert_eq!(
+		e.instance(&instance.id)
+			.await
+			.unwrap()
+			.manifest_version
+			.as_deref(),
+		Some("1")
 	);
 }
 #[tokio::test]

@@ -66,7 +66,9 @@ impl Engine {
 		let providers_path = root.join("manifest-providers.json");
 		let providers = match tokio::fs::read(providers_path).await {
 			Ok(bytes) => serde_json::from_slice(&bytes)?,
-			Err(e) if e.kind() == std::io::ErrorKind::NotFound => ManifestProviders::default(),
+			Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+				ManifestProviders::github_ncreate()
+			}
 			Err(e) => return Err(e.into()),
 		};
 		let engine = Arc::new(Self {

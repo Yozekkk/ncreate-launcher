@@ -275,15 +275,20 @@ impl Engine {
 	pub async fn rollback(&self, instance_id: &str) -> Result<()> {
 		let _guard = self.mutation.lock().await;
 		self.ensure_stopped(instance_id).await?;
+		let instance = self.instance(instance_id).await?;
 		let rows: Vec<String> =
 			sqlx::query_scalar("SELECT data FROM launcher_jobs ORDER BY rowid DESC")
 				.fetch_all(&self.pool)
 				.await?;
 		for row in rows {
 			let journal: Journal = serde_json::from_str(&row)?;
-			if journal.instance_id == instance_id && journal.state == "committed" {
+			if journal.instance_id == instance_id
+				&& journal.state == "committed"
+				&& (instance.kind != "official" || journal.manifest_before.is_some())
+			{
 				let directory = self.root.join("transactions").join(&journal.id);
 				let mut tx = Transaction { directory, journal };
+				self.preflight_manual_rollback(&tx).await?;
 				self.restore_transaction(&mut tx).await?;
 				sqlx::query("UPDATE launcher_jobs SET data=? WHERE id=?")
 					.bind(serde_json::to_string(&tx.journal)?)
@@ -296,6 +301,65 @@ impl Engine {
 		Err(Error::Invalid(
 			"no reversible installation is available".into(),
 		))
+	}
+	pub async fn rollback_available(&self, instance_id: &str) -> Result<bool> {
+		let instance = self.instance(instance_id).await?;
+		let rows: Vec<String> =
+			sqlx::query_scalar("SELECT data FROM launcher_jobs ORDER BY rowid DESC")
+				.fetch_all(&self.pool)
+				.await?;
+		for row in rows {
+			let journal: Journal = serde_json::from_str(&row)?;
+			if journal.instance_id == instance_id
+				&& journal.state == "committed"
+				&& (instance.kind != "official" || journal.manifest_before.is_some())
+			{
+				let directory = self.root.join("transactions").join(&journal.id);
+				return Ok(directory.join("journal.json").exists()
+					&& journal.changes.iter().all(|change| {
+						change.before_hash.as_ref().is_none_or(|_| {
+							safe_relative(&change.path).is_ok_and(|relative| {
+								directory.join("backup").join(relative).is_file()
+							})
+						})
+					}));
+			}
+		}
+		Ok(false)
+	}
+	async fn preflight_manual_rollback(&self, tx: &Transaction) -> Result<()> {
+		if !tx.directory.join("journal.json").exists() {
+			return Err(Error::Invalid("rollback snapshot is missing".into()));
+		}
+		let root = self.instance_path(&tx.journal.instance_id)?;
+		for change in &tx.journal.changes {
+			let relative = safe_relative(&change.path)?;
+			let current = contained(&root, &change.path)?;
+			let actual = match crate::download::hash_file(&current).await {
+				Ok(hash) => Some(hash),
+				Err(Error::Io(e)) if e.kind() == std::io::ErrorKind::NotFound => None,
+				Err(e) => return Err(e),
+			};
+			if actual != change.after_hash {
+				return Err(Error::Invalid(format!(
+					"rollback would replace modified user file: {}",
+					change.path
+				)));
+			}
+			if let Some(expected) = &change.before_hash {
+				let backup = tx.directory.join("backup").join(relative);
+				if crate::download::verify_file(&backup, expected, "sha512", 0)
+					.await
+					.is_err()
+				{
+					return Err(Error::Invalid(format!(
+						"rollback snapshot is missing or damaged: {}",
+						change.path
+					)));
+				}
+			}
+		}
+		Ok(())
 	}
 	pub(crate) async fn ensure_stopped(&self, id: &str) -> Result<()> {
 		let mut running = self.running.lock().await;

@@ -54,6 +54,17 @@ impl Engine {
 							error: Some(e.to_string()),
 						},
 					},
+					Err(Error::Network(e))
+						if e.status() == Some(reqwest::StatusCode::NOT_FOUND) =>
+					{
+						EditionAvailability {
+							id: id.into(),
+							channel: channel.into(),
+							available: false,
+							manifest: None,
+							error: None,
+						}
+					}
 					Err(e) => EditionAvailability {
 						id: id.into(),
 						channel: channel.into(),
@@ -98,7 +109,14 @@ impl Engine {
 			.clone();
 		drop(providers);
 		self.downloads.trust_manifest_origin(&url)?;
-		let manifest = self.downloads.json(&url, op).await?;
+		let manifest = match self.downloads.json(&url, op).await {
+			Err(Error::Network(e)) if e.status() == Some(reqwest::StatusCode::NOT_FOUND) => {
+				return Err(Error::Invalid(
+					"official edition is coming soon: no manifest has been published".into(),
+				));
+			}
+			result => result?,
+		};
 		validate_manifest(&manifest, id, channel)?;
 		Ok(manifest)
 	}
@@ -192,16 +210,19 @@ impl Engine {
 		let mut added = Vec::new();
 		let mut changed = Vec::new();
 		let mut removed = Vec::new();
+		let mut unchanged = Vec::new();
 		let mut conflicts = Vec::new();
 		let mut bytes = 0u64;
 		for file in &manifest.files {
 			let target = contained(&root, &file.path)?;
 			if let Some(previous) = old.get(&file.path) {
-				let unchanged =
+				let file_unchanged =
 					crate::download::verify_file(&target, &file.sha256, "sha256", file.size)
 						.await
 						.is_ok();
-				if !unchanged && file.update_policy != UpdatePolicy::Preserve {
+				if file_unchanged {
+					unchanged.push(file.path.clone());
+				} else if file.update_policy != UpdatePolicy::Preserve {
 					changed.push(file.path.clone());
 					bytes = bytes.saturating_add(file.size);
 					if crate::download::verify_file(&target, &previous.sha512, "sha512", 0)
@@ -238,6 +259,7 @@ impl Engine {
 			added,
 			changed,
 			removed,
+			unchanged,
 			conflicts,
 			changelog: manifest.changelog.clone(),
 			download_bytes: bytes,
@@ -265,6 +287,8 @@ impl Engine {
 		let mut changes = Vec::new();
 		let mut records = Vec::new();
 		let mut transaction = self.prepare_transaction(&instance.id, Vec::new()).await?;
+		let total_files = plan.added.len() + plan.changed.len();
+		let mut remaining_files = total_files;
 		for file in &manifest.files {
 			let needs = plan.added.contains(&file.path) || plan.changed.contains(&file.path);
 			if !needs {
@@ -274,6 +298,7 @@ impl Engine {
 				continue;
 			}
 			op.check()?;
+			op.edition_files_remaining(remaining_files, total_files);
 			let path = transaction
 				.directory
 				.join("stage")
@@ -281,6 +306,8 @@ impl Engine {
 			self.downloads
 				.file(&file.url, &path, &file.sha256, "sha256", file.size, op)
 				.await?;
+			remaining_files -= 1;
+			op.edition_files_remaining(remaining_files, total_files);
 			let hash = crate::download::hash_file(&path).await?;
 			changes.push(Change {
 				path: file.path.clone(),
@@ -415,7 +442,13 @@ pub fn validate_manifest(manifest: &EditionManifest, id: &str, channel: &str) ->
 	let mut total = 0u64;
 	for file in &manifest.files {
 		safe_relative(&file.path)?;
-		let first = file.path.split('/').next().unwrap_or("");
+		let first = file
+			.path
+			.split('/')
+			.next()
+			.unwrap_or("")
+			.to_ascii_lowercase();
+		let lower_path = file.path.to_ascii_lowercase();
 		if [
 			"saves",
 			"screenshots",
@@ -425,7 +458,12 @@ pub fn validate_manifest(manifest: &EditionManifest, id: &str, channel: &str) ->
 			".ncreate-runtime",
 			".ncreate-icon.png",
 		]
-		.contains(&first)
+		.contains(&first.as_str())
+			|| [
+				".exe", ".com", ".msi", ".dll", ".so", ".dylib", ".bat", ".cmd", ".ps1", ".sh",
+			]
+			.iter()
+			.any(|extension| lower_path.ends_with(extension))
 			|| !paths.insert(file.path.to_ascii_lowercase())
 			|| file.sha256.len() != 64
 			|| !file.sha256.chars().all(|c| c.is_ascii_hexdigit())
@@ -510,13 +548,17 @@ mod tests {
 		assert!(validate_manifest(&m, "minimal", "stable").is_ok());
 		m.files[0].path = "saves/world/level.dat".into();
 		assert!(validate_manifest(&m, "minimal", "stable").is_err());
+		m.files[0].path = "Saves/world/level.dat".into();
+		assert!(validate_manifest(&m, "minimal", "stable").is_err());
+		m.files[0].path = "mods/setup.exe".into();
+		assert!(validate_manifest(&m, "minimal", "stable").is_err());
 	}
 	#[test]
 	fn channel_is_explicit() {
 		assert!(validate_manifest(&fixture(), "minimal", "beta").is_err());
 	}
 	#[tokio::test]
-	async fn no_production_urls_remain_coming_soon() {
+	async fn default_github_provider_can_still_show_coming_soon() {
 		let root = tempfile::tempdir().unwrap();
 		let pool = sqlx::sqlite::SqlitePoolOptions::new()
 			.max_connections(1)
@@ -524,8 +566,20 @@ mod tests {
 			.await
 			.unwrap();
 		let engine = Engine::open(root.path().to_path_buf(), pool).await.unwrap();
+		assert_eq!(
+			engine.providers.lock().await.stable["minimal"],
+			"https://raw.githubusercontent.com/Yozekkk/ncreate-manifests/main/channels/stable/minimal.json"
+		);
+		engine
+			.configure_manifest_providers(ManifestProviders::default())
+			.await
+			.unwrap();
+		let reopened = Engine::open(root.path().to_path_buf(), engine.pool.clone())
+			.await
+			.unwrap();
+		assert!(reopened.providers.lock().await.stable.is_empty());
 		assert!(
-			engine
+			reopened
 				.edition_availability("stable")
 				.await
 				.unwrap()
