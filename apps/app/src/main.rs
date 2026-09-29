@@ -4,6 +4,7 @@ mod core_commands;
 #[cfg(debug_assertions)]
 #[allow(dead_code, clippy::all)]
 mod dev_bridge;
+mod launcher_updates;
 mod skins;
 mod storage;
 
@@ -24,6 +25,8 @@ struct AppState {
 	skins: skins::SkinService,
 	login: Mutex<()>,
 	cancellation: AtomicU64,
+	pending_update: Mutex<Option<launcher_updates::PendingUpdate>>,
+	update_gate: Mutex<()>,
 }
 impl AppState {
 	async fn engine(&self) -> Result<Arc<Engine>> {
@@ -320,6 +323,8 @@ fn run() -> std::result::Result<(), Box<dyn std::error::Error>> {
 		skins: skins::SkinService::new()?,
 		login: Mutex::new(()),
 		cancellation: AtomicU64::new(0),
+		pending_update: Mutex::new(None),
+		update_gate: Mutex::new(()),
 	};
 	let builder = tauri::Builder::default()
 		.manage(state)
@@ -332,6 +337,7 @@ fn run() -> std::result::Result<(), Box<dyn std::error::Error>> {
 		.plugin(tauri_plugin_deep_link::init())
 		.plugin(tauri_plugin_dialog::init())
 		.plugin(tauri_plugin_opener::init())
+		.plugin(tauri_plugin_updater::Builder::new().build())
 		.plugin(
 			tauri_plugin_window_state::Builder::default()
 				.with_state_flags(
@@ -389,6 +395,7 @@ fn run() -> std::result::Result<(), Box<dyn std::error::Error>> {
 		core_commands::core_check_updates,
 		core_commands::core_update_content,
 		core_commands::core_rollback,
+		core_commands::core_rollback_available,
 		core_commands::core_search,
 		core_commands::core_project,
 		core_commands::core_versions,
@@ -412,6 +419,8 @@ fn run() -> std::result::Result<(), Box<dyn std::error::Error>> {
 		core_commands::core_install_edition,
 		core_commands::core_check_edition_update,
 		core_commands::core_apply_edition_update,
+		launcher_updates::launcher_check_update,
+		launcher_updates::launcher_install_update,
 		cancel_login,
 		dev_bridge::__dev_bridge_result
 	]);
@@ -440,6 +449,7 @@ fn run() -> std::result::Result<(), Box<dyn std::error::Error>> {
 		core_commands::core_check_updates,
 		core_commands::core_update_content,
 		core_commands::core_rollback,
+		core_commands::core_rollback_available,
 		core_commands::core_search,
 		core_commands::core_project,
 		core_commands::core_versions,
@@ -463,6 +473,8 @@ fn run() -> std::result::Result<(), Box<dyn std::error::Error>> {
 		core_commands::core_install_edition,
 		core_commands::core_check_edition_update,
 		core_commands::core_apply_edition_update,
+		launcher_updates::launcher_check_update,
+		launcher_updates::launcher_install_update,
 		cancel_login
 	]);
 	builder.run(tauri::generate_context!())?;

@@ -32,6 +32,7 @@
 	},
 	"bundle": {
 		"active": true,
+		"createUpdaterArtifacts": true,
 		"targets": [
 			"appimage",
 			"deb",
@@ -76,6 +77,14 @@
 				"schemes": [
 					"ncreate"
 				]
+			}
+		},
+		"updater": {
+			"pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEEzMjA3RDc2QkJCOTczNjcKUldSbmM3bTdkbjBnb3k1cnA1M0ZGeWJpREhHbS9McDZCbDFUaUV6bEVheWpjdW1VaW92dTk4OFIK",
+			"requireSignedVersion": true,
+			"endpoints": [],
+			"windows": {
+				"installMode": "passive"
 			}
 		}
 	}

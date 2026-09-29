@@ -1129,6 +1129,91 @@ button {
 	padding: 6px 8px;
 	white-space: nowrap;
 }
+.launcher-update-banner {
+	gap: 16px;
+}
+.launcher-update-banner > span {
+	min-width: 0;
+	overflow-wrap: anywhere;
+}
+.launcher-update-banner-actions,
+.launcher-update-actions {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+}
+.launcher-update-banner-actions .button {
+	min-height: 34px;
+}
+.launcher-update-check-row .button {
+	white-space: nowrap;
+}
+.launcher-update-state {
+	border-top: 1px solid #ffffff06;
+	padding-top: 16px;
+	font-size: 12px;
+	color: #cbb9a7;
+	overflow-wrap: anywhere;
+}
+.launcher-update-state > p {
+	display: flex;
+	align-items: center;
+	gap: 9px;
+}
+.launcher-update-state .spinner {
+	width: 16px;
+	height: 16px;
+}
+.launcher-update-available,
+.launcher-update-progress {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 11px;
+}
+.launcher-update-available strong,
+.launcher-update-progress strong {
+	color: #f4d2ae;
+}
+.launcher-update-available p,
+.launcher-update-progress p {
+	color: #a99686;
+	line-height: 1.6;
+	font-variant-numeric: tabular-nums;
+}
+.launcher-update-available details {
+	max-width: 100%;
+}
+.launcher-update-available summary {
+	cursor: pointer;
+	color: #edb781;
+}
+.launcher-update-notes {
+	margin-top: 9px;
+	max-height: 180px;
+	overflow: auto;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+.launcher-update-actions {
+	margin-top: 3px;
+}
+.launcher-update-progress progress {
+	width: min(100%, 440px);
+	height: 7px;
+	accent-color: var(--orange);
+}
+.official-update-inline {
+	width: fit-content;
+	max-width: 100%;
+	margin: 12px 0;
+	padding: 8px 11px;
+	border: 1px solid #fa4c032a;
+	border-radius: 8px;
+	background: #fa4c030c;
+	color: #edb781;
+	font-size: 12px;
+}
 .future-note {
 	font-size: 11px;
 	color: #988270;

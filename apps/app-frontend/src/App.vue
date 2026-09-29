@@ -23,6 +23,8 @@ import {
 } from './models'
 import { gameApi, type EditionAvailability } from './game-api'
 import { configureEditionInstaller, canInstallEdition, installEdition } from './edition-installer'
+import { formatUpdateBytes, useLauncherUpdates } from './launcher-updates'
+import { renderProjectMarkdown } from './project-markdown'
 import { messages } from './i18n'
 
 const navigation: { id: Page; label: string; icon: string }[] = [
@@ -34,6 +36,10 @@ const navigation: { id: Page; label: string; icon: string }[] = [
 ]
 const page = ref<Page>('home')
 const operations = useGameOperations()
+const launcherUpdates = useLauncherUpdates()
+const launcherUpdateNotes = computed(() =>
+	renderProjectMarkdown(launcherUpdates.candidate.value?.notes || ''),
+)
 const routeDetail = ref<string | null>(null)
 const snapshot = ref<Snapshot | null>(null)
 const draft = ref<Settings | null>(null)
@@ -90,7 +96,7 @@ const eventCleanup: UnlistenFn[] = []
 let mounted = true
 const autostart = ref(false)
 const autostartAvailable = ref(false)
-const version = ref('0.1.0')
+const version = ref('…')
 const license = ref('')
 const fontLicenses = ref('')
 const skins = reactive<Record<string, Skin | undefined>>({})
@@ -211,7 +217,10 @@ async function initialize() {
 	loading.value = true
 	error.value = ''
 	try {
-		applySnapshot(await invoke<Snapshot>('snapshot'))
+		const result = await invoke<Snapshot>('snapshot')
+		applySnapshot(result)
+		if (result.settings.auto_updates)
+			void launcherUpdates.check(result.settings.release_channel || 'stable')
 	} catch (reason) {
 		error.value = errorMessage(reason)
 	} finally {
@@ -314,8 +323,16 @@ async function toggleAutostart() {
 	}
 }
 async function saveSettings() {
-	if (draft.value)
-		await mutate('save_settings', { settings: { ...draft.value } }, 'Настройки сохранены')
+	if (!draft.value) return
+	const previous = snapshot.value?.settings
+	if (await mutate('save_settings', { settings: { ...draft.value } }, 'Настройки сохранены')) {
+		const settings = snapshot.value?.settings
+		if (
+			settings?.auto_updates &&
+			(!previous?.auto_updates || previous.release_channel !== settings.release_channel)
+		)
+			void launcherUpdates.check(settings.release_channel)
+	}
 }
 async function restart() {
 	try {
@@ -466,6 +483,21 @@ onUnmounted(() => {
 			<div v-if="!online" class="banner network" role="status">
 				Нет подключения к интернету. Офлайн аккаунты и настройки доступны; скины загрузятся после
 				подключения.
+			</div>
+			<div
+				v-if="launcherUpdates.phase.value === 'available' && page !== 'settings'"
+				class="banner launcher-update-banner"
+				role="status"
+			>
+				<span
+					>Доступно обновление NCreate Launcher {{ launcherUpdates.candidate.value?.version }}</span
+				>
+				<div class="launcher-update-banner-actions">
+					<button class="button secondary" @click="setPage('settings')">Подробнее</button>
+					<button class="icon-button" aria-label="Напомнить позже" @click="launcherUpdates.later()">
+						<AppIcon name="close" :size="16" />
+					</button>
+				</div>
 			</div>
 			<div
 				v-if="error && !offlineDialog?.open && !accountDialog?.open"
@@ -810,22 +842,134 @@ onUnmounted(() => {
 								<span />
 							</button>
 						</div>
+					</div>
+					<div class="settings-section launcher-updates-section">
+						<h2><AppIcon name="refresh" />Обновления лаунчера</h2>
 						<div class="setting-row">
 							<div>
-								<strong>Автоматическая проверка обновлений</strong>
-								<p>Появится после настройки подписанных релизов NCreate</p>
+								<strong>Автоматическая проверка</strong>
+								<p>Искать обновления при запуске. Установка начнётся только после подтверждения.</p>
 							</div>
-							<span class="quiet-badge">Пока недоступно</span>
+							<button
+								class="switch"
+								:class="{ on: draft.auto_updates }"
+								role="switch"
+								:aria-checked="draft.auto_updates"
+								aria-label="Автоматическая проверка обновлений"
+								@click="draft.auto_updates = !draft.auto_updates"
+							>
+								<span />
+							</button>
 						</div>
 						<div class="setting-row">
 							<div>
 								<label for="release-channel">Канал версий</label>
-								<p>Стабильные версии по умолчанию. Beta включается только вручную.</p>
+								<p>Stable не получает Beta автоматически. Сохраните выбор перед проверкой.</p>
 							</div>
 							<select id="release-channel" v-model="draft.release_channel">
 								<option value="stable">Stable · стабильный</option>
 								<option value="beta">Beta · предварительный</option>
 							</select>
+						</div>
+						<div class="setting-row launcher-update-check-row">
+							<div>
+								<strong>Текущая версия — {{ version }}</strong>
+								<p>Канал: {{ snapshot.settings.release_channel === 'beta' ? 'Beta' : 'Stable' }}</p>
+							</div>
+							<button
+								class="button secondary"
+								:disabled="
+									!online ||
+									settingsChanged ||
+									['checking', 'downloading', 'installing', 'restarting'].includes(
+										launcherUpdates.phase.value,
+									)
+								"
+								@click="launcherUpdates.check(snapshot.settings.release_channel)"
+							>
+								<AppIcon name="refresh" :size="17" />{{
+									launcherUpdates.phase.value === 'checking' ? 'Проверяем…' : 'Проверить обновления'
+								}}
+							</button>
+						</div>
+						<div
+							v-if="settingsChanged || launcherUpdates.phase.value !== 'idle'"
+							class="launcher-update-state"
+							aria-live="polite"
+						>
+							<p v-if="settingsChanged" class="field-help">
+								Сохраните настройки, чтобы применить выбранный канал обновлений.
+							</p>
+							<p v-if="launcherUpdates.phase.value === 'checking'" role="status">
+								<span class="spinner" />Проверка обновлений…
+							</p>
+							<p v-else-if="launcherUpdates.phase.value === 'current'" role="status">
+								<AppIcon name="check" :size="17" /> Установлена последняя доступная версия.
+							</p>
+							<div
+								v-else-if="launcherUpdates.phase.value === 'available'"
+								class="launcher-update-available"
+							>
+								<strong>Доступно обновление {{ launcherUpdates.candidate.value?.version }}</strong>
+								<p>
+									Размер: {{ formatUpdateBytes(launcherUpdates.candidate.value?.size_bytes) }} ·
+									Подпись будет проверена перед установкой.
+								</p>
+								<details v-if="launcherUpdates.candidate.value?.notes">
+									<summary>Что нового</summary>
+									<!-- Release notes pass through the existing tag allowlist and DOMPurify. -->
+									<!-- eslint-disable vue/no-v-html -->
+									<div
+										class="launcher-update-notes project-markdown"
+										v-html="launcherUpdateNotes"
+									/>
+									<!-- eslint-enable vue/no-v-html -->
+								</details>
+								<div class="launcher-update-actions">
+									<button class="button primary" @click="launcherUpdates.install()">
+										Обновить
+									</button>
+									<button class="button subtle" @click="launcherUpdates.later()">Позже</button>
+								</div>
+							</div>
+							<div
+								v-else-if="
+									['downloading', 'installing', 'restarting'].includes(launcherUpdates.phase.value)
+								"
+								class="launcher-update-progress"
+								role="status"
+							>
+								<strong>{{
+									launcherUpdates.phase.value === 'downloading'
+										? 'Загрузка обновления'
+										: launcherUpdates.phase.value === 'installing'
+											? 'Установка обновления'
+											: 'Перезапуск лаунчера'
+								}}</strong>
+								<progress
+									v-if="launcherUpdates.progress.value?.total_bytes"
+									:max="launcherUpdates.progress.value.total_bytes"
+									:value="launcherUpdates.progress.value.downloaded_bytes"
+								/>
+								<p v-if="launcherUpdates.phase.value === 'downloading'">
+									{{ formatUpdateBytes(launcherUpdates.progress.value?.downloaded_bytes) }} /
+									{{ formatUpdateBytes(launcherUpdates.progress.value?.total_bytes) }}
+									<span v-if="launcherUpdates.progress.value?.bytes_per_second">
+										·
+										{{ formatUpdateBytes(launcherUpdates.progress.value.bytes_per_second) }}/с</span
+									>
+								</p>
+								<p v-else>
+									{{ launcherUpdates.progress.value?.message || 'Пожалуйста, подождите…' }}
+								</p>
+							</div>
+							<div
+								v-else-if="launcherUpdates.phase.value === 'error'"
+								class="banner error"
+								role="alert"
+							>
+								{{ launcherUpdates.error.value }}
+							</div>
 						</div>
 					</div>
 					<div class="settings-section">

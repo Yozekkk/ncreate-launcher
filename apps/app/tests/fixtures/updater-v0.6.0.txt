@@ -1,0 +1,1 @@
+NCreate updater signature regression fixture v0.6.0

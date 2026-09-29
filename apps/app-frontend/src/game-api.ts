@@ -172,6 +172,8 @@ export const gameApi = {
 		invoke<UpdatePlan>('core_check_edition_update', { instanceId, channel }),
 	applyEditionUpdate: (instanceId: string, channel: 'stable' | 'beta') =>
 		invoke<string>('core_apply_edition_update', { instanceId, channel }),
+	rollbackAvailable: (instanceId: string) =>
+		invoke<boolean>('core_rollback_available', { instanceId }),
 	instances: () => invoke<Instance[]>('core_instances'),
 	create: (request: CreateInstance) => invoke<Instance>('core_create_instance', { request }),
 	edit: (instanceId: string, request: CreateInstance) =>

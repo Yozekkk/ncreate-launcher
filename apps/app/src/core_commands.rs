@@ -263,6 +263,18 @@ pub async fn core_rollback(
 		.map_err(core_error)
 }
 #[tauri::command]
+pub async fn core_rollback_available(
+	window: tauri::WebviewWindow,
+	state: tauri::State<'_, AppState>,
+	instance_id: String,
+) -> Result<bool> {
+	engine(&window, &state)
+		.await?
+		.rollback_available(&instance_id)
+		.await
+		.map_err(core_error)
+}
+#[tauri::command]
 pub async fn core_search(
 	window: tauri::WebviewWindow,
 	state: tauri::State<'_, AppState>,

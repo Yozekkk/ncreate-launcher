@@ -48,7 +48,7 @@ impl Default for Settings {
 			memory_mb: 4096,
 			java_path: String::new(),
 			game_directory: String::new(),
-			auto_updates: false,
+			auto_updates: true,
 			release_channel: stable_channel(),
 		}
 	}
@@ -105,6 +105,7 @@ impl Store {
 			.await
 			.map_err(db_error)?;
 		migrate(&pool, &directory).await?;
+		initialize_update_preference(&pool).await?;
 		Ok(Self { pool, directory })
 	}
 	pub async fn account(&self, uuid: &str) -> Result<Account> {
@@ -273,7 +274,7 @@ impl Store {
 		tx.commit().await.map_err(db_error)?;
 		self.snapshot().await
 	}
-	pub async fn settings(&self, mut settings: Settings) -> Result<Snapshot> {
+	pub async fn settings(&self, settings: Settings) -> Result<Snapshot> {
 		if !["stable", "beta"].contains(&settings.release_channel.as_str())
 			|| settings.locale != "ru"
 			|| !["dark", "oled"].contains(&settings.theme.as_str())
@@ -283,7 +284,6 @@ impl Store {
 		{
 			return Err("Проверьте значения настроек".into());
 		}
-		settings.auto_updates = false;
 		let json = serde_json::to_string(&settings).map_err(db_error)?;
 		sqlx::query("INSERT INTO settings(id,value) VALUES(0,?) ON CONFLICT(id) DO UPDATE SET value = excluded.value").bind(json).execute(&self.pool).await.map_err(db_error)?;
 		self.snapshot().await
@@ -291,6 +291,43 @@ impl Store {
 }
 fn stable_channel() -> String {
 	"stable".into()
+}
+async fn initialize_update_preference(pool: &SqlitePool) -> Result<()> {
+	let mut tx = pool.begin().await.map_err(db_error)?;
+	sqlx::query("CREATE TABLE IF NOT EXISTS launcher_settings_migrations (name TEXT PRIMARY KEY)")
+		.execute(&mut *tx)
+		.await
+		.map_err(db_error)?;
+	let initialized: Option<String> = sqlx::query_scalar(
+		"SELECT name FROM launcher_settings_migrations WHERE name='auto_updates_v1'",
+	)
+	.fetch_optional(&mut *tx)
+	.await
+	.map_err(db_error)?;
+	if initialized.is_none() {
+		let existing: Option<String> = sqlx::query_scalar("SELECT value FROM settings WHERE id=0")
+			.fetch_optional(&mut *tx)
+			.await
+			.map_err(db_error)?;
+		if let Some(existing) = existing {
+			let mut value: serde_json::Value = serde_json::from_str(&existing).map_err(db_error)?;
+			let settings = value
+				.as_object_mut()
+				.ok_or_else(|| "Некорректные настройки лаунчера".to_string())?;
+			// Before this migration the launcher always forced this preference off.
+			settings.insert("auto_updates".into(), serde_json::Value::Bool(true));
+			sqlx::query("UPDATE settings SET value=? WHERE id=0")
+				.bind(serde_json::to_string(&value).map_err(db_error)?)
+				.execute(&mut *tx)
+				.await
+				.map_err(db_error)?;
+		}
+		sqlx::query("INSERT INTO launcher_settings_migrations(name) VALUES('auto_updates_v1')")
+			.execute(&mut *tx)
+			.await
+			.map_err(db_error)?;
+	}
+	tx.commit().await.map_err(db_error)
 }
 fn hydrate(mut account: Account) -> Result<Account> {
 	let uuid = Uuid::parse_str(&account.uuid).map_err(db_error)?;
@@ -416,9 +453,13 @@ mod tests {
 			.rename(&offline_uuid("SecondQA").to_string(), "RenamedQA")
 			.await
 			.expect("rename");
+		let mut settings = store.snapshot().await.expect("settings snapshot").settings;
+		settings.auto_updates = false;
+		store.settings(settings).await.expect("save update opt-out");
 		store.pool.close().await;
 		let reopened = Store::open(directory.clone()).await.expect("reopen");
 		let snapshot = reopened.snapshot().await.expect("snapshot");
+		assert!(!snapshot.settings.auto_updates);
 		assert_eq!(snapshot.accounts.len(), 2);
 		assert_eq!(snapshot.accounts.iter().filter(|a| a.active).count(), 1);
 		assert!(snapshot.accounts.iter().any(|a| a.active
@@ -477,6 +518,7 @@ mod tests {
 		assert_eq!(snapshot.settings.java_path, "/custom/java");
 		assert_eq!(snapshot.settings.theme, "oled");
 		assert_eq!(snapshot.settings.release_channel, "stable");
+		assert!(snapshot.settings.auto_updates);
 		let microsoft = snapshot
 			.accounts
 			.iter()

@@ -13,7 +13,7 @@ export function operationTitle(operation: string): string {
 }
 export function operationMessage(job: Progress): string {
 	if (job.phase === 'downloading')
-		return `Загружаем файлы · ${(job.completed / 1048576).toFixed(1)}${job.total > 0 ? ' / ' + (job.total / 1048576).toFixed(1) : ''} МБ`
+		return `Загружаем файлы · ${(job.completed / 1048576).toFixed(1)}${job.total > 0 ? ' / ' + (job.total / 1048576).toFixed(1) : ''} МБ${['install_edition', 'update_edition'].includes(job.operation) && job.message.startsWith('Осталось файлов:') ? ` · ${job.message}` : ''}`
 	if (job.phase === 'committing') return 'Проверка завершена. Сохраняем изменения…'
 	if (job.phase === 'loader_processors') return 'Настраиваем загрузчик Minecraft…'
 	if (job.phase === 'checking') return 'Проверяем кеш Minecraft…'

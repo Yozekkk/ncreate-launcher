@@ -44,7 +44,22 @@ function modCountLabel(count: number): string {
 const removeModDialog = ref<HTMLDialogElement | null>(null)
 const editionUpdateDialog = ref<HTMLDialogElement | null>(null)
 const editionPlan = ref<UpdatePlan | null>(null)
+type OfficialUpdateStatus = {
+	phase: 'checking' | 'current' | 'available' | 'error'
+	version?: string
+}
+const officialUpdateStatus = ref<Record<string, OfficialUpdateStatus>>({})
+const editionHasChanges = computed(
+	() =>
+		!!editionPlan.value &&
+		!!(
+			editionPlan.value.added.length +
+			editionPlan.value.changed.length +
+			editionPlan.value.removed.length
+		),
+)
 const rollbackDialog = ref<HTMLDialogElement | null>(null)
+const rollbackAvailable = ref(false)
 const nameInput = ref<HTMLInputElement | null>(null)
 const createName = ref('')
 const gameVersion = ref('')
@@ -68,6 +83,8 @@ let contentGeneration = 0
 let mounted = true
 let gameTimer: ReturnType<typeof setTimeout> | undefined
 let instanceGeneration = 0
+let rollbackGeneration = 0
+let officialUpdateGeneration = 0
 const current = computed(() => instances.value.find((instance) => instance.id === props.detail))
 const visibleVersions = computed(() =>
 	versions.value.filter((version) => includeSnapshots.value || version.type === 'release'),
@@ -90,6 +107,41 @@ const instanceBusy = (id: string) =>
 const dates = new Intl.DateTimeFormat('ru', { day: 'numeric', month: 'short', year: 'numeric' })
 const lastPlayed = (instance: Instance) =>
 	instance.last_played ? dates.format(new Date(instance.last_played * 1000)) : 'Ещё не запускалась'
+async function loadRollbackAvailability() {
+	const instance = current.value
+	const generation = ++rollbackGeneration
+	rollbackAvailable.value = false
+	if (!instance) return
+	try {
+		const available = await gameApi.rollbackAvailable(instance.id)
+		if (mounted && generation === rollbackGeneration) rollbackAvailable.value = available
+	} catch {
+		if (mounted && generation === rollbackGeneration) rollbackAvailable.value = false
+	}
+}
+async function loadOfficialUpdateStatus() {
+	const generation = ++officialUpdateGeneration
+	const official = instances.value.filter((instance) => instance.kind === 'official')
+	officialUpdateStatus.value = Object.fromEntries(
+		official.map((instance) => [instance.id, { phase: 'checking' }]),
+	)
+	await Promise.all(
+		official.map(async (instance) => {
+			let status: OfficialUpdateStatus
+			try {
+				const plan = await gameApi.checkEditionUpdate(instance.id, props.settings.release_channel)
+				status =
+					plan.added.length + plan.changed.length + plan.removed.length > 0
+						? { phase: 'available', version: plan.to_version }
+						: { phase: 'current' }
+			} catch {
+				status = { phase: 'error' }
+			}
+			if (mounted && generation === officialUpdateGeneration)
+				officialUpdateStatus.value = { ...officialUpdateStatus.value, [instance.id]: status }
+		}),
+	)
+}
 function requestFor(instance: Instance, name: string): CreateInstance {
 	return {
 		name,
@@ -126,6 +178,10 @@ async function loadInstances(quiet = false) {
 		if (!mounted || generation !== instanceGeneration) return
 		instances.value = result
 		loaded = true
+		if (!quiet) {
+			void loadRollbackAvailability()
+			void loadOfficialUpdateStatus()
+		}
 		if (!quiet && props.detail) await loadContent()
 	} catch (reason) {
 		if (mounted && generation === instanceGeneration) error.value = displayError(reason)
@@ -388,11 +444,16 @@ async function rollback() {
 }
 watch([loader, gameVersion], () => void loadLoaderVersions())
 watch(
+	() => props.settings.release_channel,
+	() => void loadOfficialUpdateStatus(),
+)
+watch(
 	() => props.detail,
 	() => {
 		error.value = ''
 		notice.value = ''
 		void loadContent()
+		void loadRollbackAvailability()
 	},
 )
 watch(
@@ -407,6 +468,8 @@ onMounted(() => void loadInstances())
 onUnmounted(() => {
 	mounted = false
 	instanceGeneration++
+	rollbackGeneration++
+	officialUpdateGeneration++
 	contentGeneration++
 	clearTimeout(gameTimer)
 })
@@ -495,6 +558,21 @@ onUnmounted(() => {
 			<p v-if="!accountName" class="instance-account-note">
 				Для запуска выбери <a href="#/accounts">аккаунт Minecraft</a>. Устанавливать файлы можно уже
 				сейчас.
+			</p>
+			<p
+				v-if="current.kind === 'official' && officialUpdateStatus[current.id]"
+				class="official-update-inline"
+				role="status"
+			>
+				{{
+					officialUpdateStatus[current.id].phase === 'checking'
+						? 'Проверяем обновления сборки…'
+						: officialUpdateStatus[current.id].phase === 'available'
+							? `Доступно обновление ${officialUpdateStatus[current.id].version}`
+							: officialUpdateStatus[current.id].phase === 'current'
+								? 'Сборка актуальна'
+								: 'Не удалось проверить обновления сборки'
+				}}
 			</p>
 			<div class="instance-toolbar">
 				<button
@@ -683,11 +761,12 @@ onUnmounted(() => {
 			<div class="instance-footer">
 				<span>{{ current.directory }}</span
 				><button
+					v-if="rollbackAvailable"
 					class="button subtle"
 					:disabled="busy || instanceBusy(current.id) || current.status === 'running'"
 					@click="rollbackDialog?.showModal()"
 				>
-					Восстановить предыдущее состояние
+					Восстановить предыдущую версию
 				</button>
 			</div>
 		</template>
@@ -728,7 +807,11 @@ onUnmounted(() => {
 					<small>{{ lastPlayed(instance) }}</small></a
 				>
 				<div class="instance-card-bottom">
-					<span class="instance-state">{{ statusLabel(instance.status) }}</span
+					<span class="instance-state">{{
+						instance.kind === 'official' && officialUpdateStatus[instance.id]?.phase === 'available'
+							? 'Доступно обновление'
+							: statusLabel(instance.status)
+					}}</span
 					><button
 						class="button primary"
 						:disabled="
@@ -804,6 +887,10 @@ onUnmounted(() => {
 					{{ editionPlan.from_version || 'Первая установка' }} → {{ editionPlan.to_version }} ·
 					{{ (editionPlan.download_bytes / 1048576).toFixed(1) }} МБ
 				</p>
+				<p v-if="!editionHasChanges" class="field-help" role="status">
+					Сборка актуальна. Изменений для установки нет.
+				</p>
+				<p v-else class="field-help">Доступно обновление. Проверьте изменения перед установкой.</p>
 				<div class="update-plan-counts">
 					<span>+ {{ editionPlan.added.length }} новых</span
 					><span>↻ {{ editionPlan.changed.length }} изменённых</span
@@ -819,7 +906,7 @@ onUnmounted(() => {
 						<li v-for="path in editionPlan.conflicts" :key="path">{{ path }}</li>
 					</ul>
 				</div>
-				<details class="update-plan-files">
+				<details v-if="editionHasChanges" class="update-plan-files">
 					<summary>Изменения файлов</summary>
 					<ul>
 						<li v-for="path in editionPlan.added" :key="'add' + path">+ {{ path }}</li>
@@ -834,11 +921,7 @@ onUnmounted(() => {
 						Отмена</button
 					><button
 						class="button primary"
-						:disabled="
-							busy ||
-							editionPlan.conflicts.length > 0 ||
-							!(editionPlan.added.length + editionPlan.changed.length + editionPlan.removed.length)
-						"
+						:disabled="busy || editionPlan.conflicts.length > 0 || !editionHasChanges"
 						@click="applyOfficialUpdate"
 					>
 						Обновить сборку
