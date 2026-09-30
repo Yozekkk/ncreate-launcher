@@ -89,21 +89,144 @@ impl Engine {
 		crate::download::verify(&bytes, &version.sha1, "sha1")?;
 		let mut info: VersionInfo = serde_json::from_slice(&bytes)?;
 		if instance.loader != Loader::Vanilla {
-			let manifest = self.loader_manifest(instance.loader, op).await?;
-			let versions = loader_matches(&manifest, &instance.game_version)?;
-			let selected = versions
-				.into_iter()
-				.find(|v| Some(v.id.as_str()) == instance.loader_version.as_deref())
-				.ok_or_else(|| {
-					Error::Invalid(
-						"loader version is incompatible with the selected Minecraft version".into(),
-					)
-				})?;
 			let partial: daedalus::modded::PartialVersionInfo =
-				self.downloads.json(&selected.url, op).await?;
+				if instance.loader == Loader::Neoforge {
+					self.neoforge_installer_info(instance, op).await?
+				} else {
+					let manifest = self.loader_manifest(instance.loader, op).await?;
+					let versions = loader_matches(&manifest, &instance.game_version)?;
+					let selected = versions
+						.into_iter()
+						.find(|v| Some(v.id.as_str()) == instance.loader_version.as_deref())
+						.ok_or_else(|| {
+							Error::Invalid(
+							"loader version is incompatible with the selected Minecraft version".into(),
+						)
+						})?;
+					self.downloads.json(&selected.url, op).await?
+				};
 			info = daedalus::modded::merge_partial_version(partial, info);
 		}
 		Ok(info)
+	}
+	async fn neoforge_installer_info(
+		&self,
+		instance: &Instance,
+		op: &Operation,
+	) -> Result<daedalus::modded::PartialVersionInfo> {
+		let version = instance
+			.loader_version
+			.as_deref()
+			.ok_or_else(|| Error::Invalid("NeoForge version is missing".into()))?;
+		if version.is_empty()
+			|| version.len() > 64
+			|| !version
+				.bytes()
+				.all(|byte| byte.is_ascii_alphanumeric() || byte == b'.' || byte == b'-')
+		{
+			return Err(Error::Invalid("invalid NeoForge version".into()));
+		}
+		let base = format!(
+			"https://maven.neoforged.net/releases/net/neoforged/neoforge/{version}/neoforge-{version}-installer.jar"
+		);
+		let expected = String::from_utf8(
+			self.downloads
+				.bytes(&format!("{base}.sha256"), 1024, op)
+				.await?,
+		)
+		.map_err(|_| Error::Invalid("NeoForge checksum is invalid".into()))?;
+		let expected = expected.split_whitespace().next().unwrap_or("");
+		if expected.len() != 64 || !expected.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+			return Err(Error::Invalid("NeoForge checksum is invalid".into()));
+		}
+		let path = self
+			.root
+			.join("minecraft/installers")
+			.join(format!("neoforge-{version}-installer.jar"));
+		if crate::download::verify_file(&path, expected, "sha256", 0)
+			.await
+			.is_err()
+		{
+			let bytes = self.downloads.bytes(&base, 64 * 1024 * 1024, op).await?;
+			crate::download::verify(&bytes, expected, "sha256")?;
+			tokio::fs::create_dir_all(
+				path.parent()
+					.ok_or_else(|| Error::Invalid("installer path has no parent".into()))?,
+			)
+			.await?;
+			let temporary = path.with_extension("jar.next");
+			tokio::fs::write(&temporary, bytes).await?;
+			tokio::fs::rename(temporary, &path).await?;
+		}
+		let (mut partial, mut data, bytes) = {
+			let mut archive = zip::ZipArchive::new(std::fs::File::open(&path)?)?;
+			let (version_json, profile) = {
+				let mut read_json = |name: &str| -> Result<serde_json::Value> {
+					use std::io::Read;
+					let entry = archive.by_name(name)?;
+					if entry.size() > 16 * 1024 * 1024 {
+						return Err(Error::Invalid(
+							"NeoForge installer metadata exceeds limit".into(),
+						));
+					}
+					let mut bytes = Vec::with_capacity(entry.size() as usize);
+					entry.take(16 * 1024 * 1024 + 1).read_to_end(&mut bytes)?;
+					Ok(serde_json::from_slice(&bytes)?)
+				};
+				(
+					read_json("version.json")?,
+					read_json("install_profile.json")?,
+				)
+			};
+			if version_json["inheritsFrom"] != instance.game_version
+				|| profile["minecraft"] != instance.game_version
+				|| profile["version"] != format!("neoforge-{version}")
+			{
+				return Err(Error::Invalid(
+					"NeoForge installer targets a different Minecraft version".into(),
+				));
+			}
+			let mut partial: daedalus::modded::PartialVersionInfo =
+				serde_json::from_value(version_json)?;
+			let mut profile_libraries: Vec<daedalus::minecraft::Library> =
+				serde_json::from_value(profile["libraries"].clone())?;
+			for mut library in profile_libraries.drain(..) {
+				if !partial
+					.libraries
+					.iter()
+					.any(|existing| existing.name == library.name)
+				{
+					library.include_in_classpath = false;
+					partial.libraries.push(library);
+				}
+			}
+			partial.processors = Some(serde_json::from_value(profile["processors"].clone())?);
+			let data: std::collections::HashMap<String, daedalus::modded::SidedDataEntry> =
+				serde_json::from_value(profile["data"].clone())?;
+			let patch = archive.by_name("data/client.lzma")?;
+			if patch.size() > 32 * 1024 * 1024 {
+				return Err(Error::Invalid("NeoForge client patch exceeds limit".into()));
+			}
+			use std::io::Read;
+			let mut bytes = Vec::with_capacity(patch.size() as usize);
+			patch.take(32 * 1024 * 1024 + 1).read_to_end(&mut bytes)?;
+			(partial, data, bytes)
+		};
+		let patch_path = self
+			.root
+			.join("minecraft/installers")
+			.join(format!("neoforge-{version}-client.lzma"));
+		tokio::fs::write(&patch_path, bytes).await?;
+		let client = patch_path.to_string_lossy().into_owned();
+		data.insert(
+			"BINPATCH".into(),
+			daedalus::modded::SidedDataEntry {
+				client: client.clone(),
+				server: client,
+			},
+		);
+		partial.data = Some(data);
+		Ok(partial)
 	}
 	pub async fn java_runtimes(&self) -> Result<Vec<JavaRuntime>> {
 		let mut candidates = vec![PathBuf::from(if cfg!(windows) {
@@ -672,6 +795,13 @@ impl Engine {
 				classpath.join(separator()),
 			]
 		};
+		if instance.loader == crate::Loader::Neoforge {
+			// The NeoForge client processor supplies the transformed Minecraft module.
+			// Keep the inherited vanilla client JAR on the classpath for launcher
+			// compatibility, but prevent ModLauncher from discovering it as a second
+			// Minecraft module.
+			ignore_vanilla_client_module(&mut jvm, &instance.game_version);
+		}
 		jvm.push(format!("-Xmx{}M", instance.memory_mb));
 		if let Some(agent) = identity.authlib_injector.as_ref() {
 			if !Path::new(&agent).is_file() {
@@ -994,6 +1124,17 @@ fn processor_output_hash(value: &str) -> Result<&str> {
 	}
 	Ok(hash)
 }
+fn ignore_vanilla_client_module(jvm: &mut [String], game_version: &str) {
+	let vanilla_jar = format!("{game_version}.jar");
+	for argument in jvm {
+		if argument.starts_with("-DignoreList=")
+			&& !argument.split(',').any(|part| part == vanilla_jar)
+		{
+			argument.push(',');
+			argument.push_str(&vanilla_jar);
+		}
+	}
+}
 fn extract_natives(archive: &Path, directory: &Path, exclude: Option<&[String]>) -> Result<()> {
 	let mut zip = zip::ZipArchive::new(std::fs::File::open(archive)?)?;
 	if zip.len() > 10000 {
@@ -1079,6 +1220,17 @@ impl Drop for SecretMap {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	#[test]
+	fn neoforge_does_not_load_the_vanilla_jar_as_a_second_minecraft_module() {
+		let mut args = vec!["-DignoreList=client-extra,neoforge-21.1.250.jar".into()];
+		ignore_vanilla_client_module(&mut args, "1.21.1");
+		assert_eq!(
+			args[0],
+			"-DignoreList=client-extra,neoforge-21.1.250.jar,1.21.1.jar"
+		);
+		ignore_vanilla_client_module(&mut args, "1.21.1");
+		assert_eq!(args[0].matches("1.21.1.jar").count(), 1);
+	}
 	#[test]
 	fn upstream_mirror_maven_coordinates_use_official_repositories() {
 		let mirror = "https://launcher-meta.modrinth.com/maven/";

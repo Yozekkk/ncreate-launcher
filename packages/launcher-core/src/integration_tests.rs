@@ -29,12 +29,12 @@ fn fixture(e: &Engine, url: &str, value: &Value) {
 	e.downloads.fixture(url, serde_json::to_vec(value).unwrap());
 }
 fn manifest(version: &str, files: &[(&str, &[u8])]) -> Value {
-	json!({"schemaVersion":1,"id":"standard","version":version,"minecraft":"1.20.1","loader":{"kind":"vanilla","version":null},"files":files.iter().map(|(path,data)|json!({"path":path,"url":format!("https://cdn.modrinth.com/{version}/{path}"),"sha256":hex::encode(Sha256::digest(data)),"size":data.len(),"required":true,"updatePolicy":"managed_only"})).collect::<Vec<_>>(),"java":{"major":17},"memory":{"minimumMb":512,"recommendedMb":2048,"maximumMb":4096},"releaseChannel":"stable","servers":[],"launch":{}})
+	json!({"schemaVersion":1,"id":"ncreate-server","version":version,"minecraft":"1.20.1","loader":{"kind":"vanilla","version":null},"files":files.iter().map(|(path,data)|json!({"path":path,"url":format!("https://cdn.modrinth.com/{version}/{path}"),"sha256":hex::encode(Sha256::digest(data)),"size":data.len(),"required":true,"updatePolicy":"managed_only"})).collect::<Vec<_>>(),"java":{"major":17},"memory":{"minimumMb":512,"recommendedMb":2048,"maximumMb":4096},"releaseChannel":"stable","servers":[],"launch":{}})
 }
 fn install_manifest(e: &Engine, m: &Value, files: &[(&str, &[u8])]) {
 	fixture(
 		e,
-		"https://raw.githubusercontent.com/ncreate/standard.json",
+		"https://raw.githubusercontent.com/ncreate/ncreate-server.json",
 		m,
 	);
 	for (path, data) in files {
@@ -50,8 +50,8 @@ fn install_manifest(e: &Engine, m: &Value, files: &[(&str, &[u8])]) {
 async fn configure(e: &Engine) {
 	e.configure_manifest_providers(ManifestProviders {
 		stable: BTreeMap::from([(
-			"standard".into(),
-			"https://raw.githubusercontent.com/ncreate/standard.json".into(),
+			"ncreate-server".into(),
+			"https://raw.githubusercontent.com/ncreate/ncreate-server.json".into(),
 		)]),
 		beta: BTreeMap::new(),
 	})
@@ -92,7 +92,11 @@ async fn official_install_diff_update_restart_rollback_preserves_users() {
 		],
 	);
 	let op = e.begin("install", None);
-	let i = e.install_edition("standard", "stable", &op).await.unwrap();
+	let i = e
+		.install_edition_files("ncreate-server", "stable", &op)
+		.await
+		.unwrap();
+	assert_eq!(e.instances().await.unwrap()[0].mod_count, 1);
 	assert!(!e.rollback_available(&i.id).await.unwrap());
 	let root = Path::new(&i.directory);
 	for (path, data) in [
@@ -205,13 +209,49 @@ async fn official_install_diff_update_restart_rollback_preserves_users() {
 	);
 }
 #[tokio::test]
+async fn metadata_only_official_update_recognizes_existing_mods() {
+	let (_dir, e) = engine().await;
+	configure(&e).await;
+	let v1 = manifest("1.0.0", &[("mods/a.jar", b"same")]);
+	install_manifest(&e, &v1, &[("mods/a.jar", b"same")]);
+	let instance = e
+		.install_edition_files("ncreate-server", "stable", &e.begin("install", None))
+		.await
+		.unwrap();
+	let mut content = e.content(&instance.id).await.unwrap();
+	content[0].kind = "official_file".into();
+	e.save_content(&content).await.unwrap();
+	assert_eq!(e.instances().await.unwrap()[0].mod_count, 0);
+	let v2 = manifest("1.0.1", &[("mods/a.jar", b"same")]);
+	install_manifest(&e, &v2, &[("mods/a.jar", b"same")]);
+	let plan = e
+		.check_edition_update(&instance.id, "stable")
+		.await
+		.unwrap();
+	assert_eq!(plan.unchanged, vec!["mods/a.jar"]);
+	assert_eq!(plan.download_bytes, 0);
+	e.apply_edition_update(&instance.id, "stable", &e.begin("update", None))
+		.await
+		.unwrap();
+	assert_eq!(e.instances().await.unwrap()[0].mod_count, 1);
+	let updated = e.content(&instance.id).await.unwrap();
+	assert_eq!(updated[0].kind, "mod");
+	assert_eq!(updated[0].version_number.as_deref(), Some("1.0.1"));
+	assert!(updated[0].managed);
+	assert_eq!(
+		e.downloads
+			.fixture_count("https://cdn.modrinth.com/1.0.1/mods/a.jar"),
+		0
+	);
+}
+#[tokio::test]
 async fn hash_failure_and_modified_user_files_do_not_apply_update() {
 	let (_dir, e) = engine().await;
 	configure(&e).await;
 	let v1 = manifest("1", &[("mods/a.jar", b"one")]);
 	install_manifest(&e, &v1, &[("mods/a.jar", b"one")]);
 	let i = e
-		.install_edition("standard", "stable", &e.begin("install", None))
+		.install_edition_files("ncreate-server", "stable", &e.begin("install", None))
 		.await
 		.unwrap();
 	let v2 = manifest("2", &[("mods/a.jar", b"two")]);
@@ -255,7 +295,11 @@ async fn damaged_rollback_snapshot_never_replaces_current_files() {
 	let v1 = manifest("1", &[("mods/a.jar", b"one")]);
 	install_manifest(&e, &v1, &[("mods/a.jar", b"one")]);
 	let instance = e
-		.install_edition("standard", "stable", &e.begin("install_edition", None))
+		.install_edition_files(
+			"ncreate-server",
+			"stable",
+			&e.begin("install_edition", None),
+		)
 		.await
 		.unwrap();
 	let v2 = manifest("2", &[("mods/a.jar", b"two")]);
@@ -303,7 +347,11 @@ async fn cancelled_official_update_keeps_previous_manifest_and_files() {
 	let v1 = manifest("1", &[("mods/a.jar", b"one")]);
 	install_manifest(&e, &v1, &[("mods/a.jar", b"one")]);
 	let instance = e
-		.install_edition("standard", "stable", &e.begin("install_edition", None))
+		.install_edition_files(
+			"ncreate-server",
+			"stable",
+			&e.begin("install_edition", None),
+		)
 		.await
 		.unwrap();
 	let v2 = manifest("2", &[("mods/a.jar", b"two")]);
@@ -704,7 +752,7 @@ async fn preserved_manifest_file_becomes_unmanaged_and_server_preferences_surviv
 	v1["servers"] = json!([{"name":"NCreate","address":"play.example.com:25565"}]);
 	install_manifest(&e, &v1, &[("config/preferences.json", b"default")]);
 	let i = e
-		.install_edition("standard", "stable", &e.begin("install", None))
+		.install_edition_files("ncreate-server", "stable", &e.begin("install", None))
 		.await
 		.unwrap();
 	let root = Path::new(&i.directory);
@@ -775,7 +823,7 @@ fn remote_manifest_rejects_java_agent_shell_hooks_and_missing_loader() {
 		value["launch"] = json!({"jvmArgs":[argument]});
 		let parsed: EditionManifest = serde_json::from_value(value).unwrap();
 		assert!(
-			crate::editions::validate_manifest(&parsed, "standard", "stable").is_err(),
+			crate::editions::validate_manifest(&parsed, "ncreate-server", "stable").is_err(),
 			"{argument}"
 		);
 	}
@@ -784,7 +832,7 @@ fn remote_manifest_rejects_java_agent_shell_hooks_and_missing_loader() {
 	assert!(
 		crate::editions::validate_manifest(
 			&serde_json::from_value(value).unwrap(),
-			"standard",
+			"ncreate-server",
 			"stable"
 		)
 		.is_err()

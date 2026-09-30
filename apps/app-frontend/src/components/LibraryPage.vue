@@ -131,6 +131,7 @@ async function loadOfficialUpdateStatus() {
 			try {
 				const plan = await gameApi.checkEditionUpdate(instance.id, props.settings.release_channel)
 				status =
+					plan.from_version !== plan.to_version ||
 					plan.added.length + plan.changed.length + plan.removed.length > 0
 						? { phase: 'available', version: plan.to_version }
 						: { phase: 'current' }
@@ -532,6 +533,9 @@ onUnmounted(() => {
 				<img v-if="current.icon" :src="current.icon" width="90" height="90" alt="Иконка сборки" />
 				<div v-else class="instance-icon"><AppIcon name="game" :size="38" /></div>
 				<div class="instance-hero-copy">
+					<span v-if="current.kind === 'official'" class="official-library-badge"
+						><AppIcon name="check" :size="12" />Официальная NCreate</span
+					>
 					<span class="quiet-badge">{{ statusLabel(current.status) }}</span>
 					<p>
 						{{ modCountLabel(current.mod_count ?? mods.length) }} ·
@@ -632,16 +636,13 @@ onUnmounted(() => {
 					<p>
 						{{
 							current.kind === 'official'
-								? 'Официальными файлами управляет манифест NCreate.'
+								? 'Официальные файлы обновляются отдельно. Свои моды можно добавлять и удалять.'
 								: 'Включай, обновляй и управляй установленным контентом.'
 						}}
 					</p>
 				</div>
 				<div class="heading-actions">
-					<a
-						v-if="current.kind !== 'official'"
-						class="button secondary"
-						:href="`#/content?instance=${current.id}`"
+					<a class="button secondary" :href="`#/content?instance=${current.id}`"
 						><AppIcon name="plus" :size="17" />Добавить моды</a
 					><button
 						class="button secondary"
@@ -667,13 +668,10 @@ onUnmounted(() => {
 				<AppIcon name="game" :size="34" />
 				<h2>Чистый мир возможностей</h2>
 				<p v-if="current.kind === 'official'">
-					Контент этой сборки определяется официальным манифестом NCreate.
+					Официальные файлы появятся здесь после установки. Свои моды можно добавить отдельно.
 				</p>
 				<p v-else>В этой сборке ещё нет модов.<br />Открой каталог и выбери совместимый контент.</p>
-				<a
-					v-if="current.kind !== 'official'"
-					class="button secondary"
-					:href="`#/content?instance=${current.id}`"
+				<a class="button secondary" :href="`#/content?instance=${current.id}`"
 					>Перейти к модам<AppIcon name="arrow" :size="16"
 				/></a>
 			</div>
@@ -780,8 +778,8 @@ onUnmounted(() => {
 			<div class="library-empty-art"><AppIcon name="folder" :size="48" /><span>+</span></div>
 			<h2>Первый мир начинается с тебя</h2>
 			<p>
-				Создай Vanilla-сборку или выбери загрузчик модов.<br />Официальные версии NCreate появятся
-				отдельно на главной.
+				Создай свою сборку или установи NCreate Server на главной.<br />После установки она появится
+				здесь вместе с твоими сборками.
 			</p>
 			<button class="button primary" @click="showCreate">
 				<AppIcon name="plus" />Создать свою сборку</button
@@ -795,11 +793,11 @@ onUnmounted(() => {
 							v-else
 							name="game"
 							:size="45"
-						/><span class="loader-chip"
-							>{{ instance.kind === 'official' ? 'NCreate · ' : ''
-							}}{{ loaderNames[instance.loader] }}</span
-						>
+						/><span class="loader-chip">{{ loaderNames[instance.loader] }}</span>
 					</div>
+					<span v-if="instance.kind === 'official'" class="official-library-badge"
+						><AppIcon name="check" :size="12" />Официальная NCreate</span
+					>
 					<h2>{{ instance.name }}</h2>
 					<p>
 						Minecraft {{ instance.game_version }} · {{ modCountLabel(instance.mod_count ?? 0) }}

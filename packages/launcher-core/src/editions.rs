@@ -1,4 +1,4 @@
-//! Versioned official manifests stay unavailable until a trusted production provider is configured.
+//! Versioned official manifests are fetched from the NCreate pack repository.
 use crate::files::{Change, contained, safe_relative};
 use crate::{
 	CreateInstance, EditionAvailability, EditionManifest, Engine, Error, InstalledContent,
@@ -9,7 +9,7 @@ impl Engine {
 	pub async fn configure_manifest_providers(&self, providers: ManifestProviders) -> Result<()> {
 		for channel in [&providers.stable, &providers.beta] {
 			for (id, url) in channel {
-				if !["minimal", "standard", "ultra"].contains(&id.as_str()) {
+				if id != "ncreate-server" {
 					return Err(Error::Invalid("unknown official edition".into()));
 				}
 				self.downloads.trust_manifest_origin(url)?;
@@ -31,7 +31,7 @@ impl Engine {
 			providers.stable
 		};
 		let mut editions = Vec::new();
-		for id in ["minimal", "standard", "ultra"] {
+		for id in ["ncreate-server"] {
 			let result = if let Some(url) = urls.get(id) {
 				self.downloads.trust_manifest_origin(url)?;
 				let op = self.begin("edition_manifest", None);
@@ -126,10 +126,23 @@ impl Engine {
 		channel: &str,
 		op: &Operation,
 	) -> Result<Instance> {
+		let instance = self.install_edition_files(id, channel, op).await?;
+		self.install_game(&instance.id, op).await
+	}
+	pub(crate) async fn install_edition_files(
+		&self,
+		id: &str,
+		channel: &str,
+		op: &Operation,
+	) -> Result<Instance> {
 		let manifest = self.remote_manifest(id, channel, op).await?;
 		let mut instance = self
 			.create_instance(CreateInstance {
-				name: format!("NCreate {}", manifest.id),
+				name: if manifest.name.is_empty() {
+					"NCreate Server".into()
+				} else {
+					manifest.name.clone()
+				},
 				game_version: manifest.minecraft.clone(),
 				loader: manifest.loader.kind,
 				loader_version: manifest.loader.version.clone(),
@@ -140,8 +153,10 @@ impl Engine {
 		instance.kind = "official".into();
 		instance.edition = Some(id.into());
 		self.save_instance(&instance).await?;
-		let _guard = self.mutation.lock().await;
-		self.apply_manifest(&instance, &manifest, op).await?;
+		{
+			let _guard = self.mutation.lock().await;
+			self.apply_manifest(&instance, &manifest, op).await?;
+		}
 		self.instance(&instance.id).await
 	}
 	pub async fn check_edition_update(
@@ -168,15 +183,24 @@ impl Engine {
 		channel: &str,
 		op: &Operation,
 	) -> Result<Instance> {
-		let _guard = self.mutation.lock().await;
-		self.ensure_stopped(instance_id).await?;
-		let instance = self.instance(instance_id).await?;
-		let id = instance.edition.as_deref().ok_or_else(|| {
-			Error::Invalid("custom instances do not use official manifests".into())
-		})?;
-		let manifest = self.remote_manifest(id, channel, op).await?;
-		self.apply_manifest(&instance, &manifest, op).await?;
-		self.instance(instance_id).await
+		let was_ready;
+		{
+			let _guard = self.mutation.lock().await;
+			self.ensure_stopped(instance_id).await?;
+			let instance = self.instance(instance_id).await?;
+			was_ready = instance.status == "ready";
+			let id = instance.edition.as_deref().ok_or_else(|| {
+				Error::Invalid("custom instances do not use official manifests".into())
+			})?;
+			let manifest = self.remote_manifest(id, channel, op).await?;
+			self.apply_manifest(&instance, &manifest, op).await?;
+		}
+		let updated = self.instance(instance_id).await?;
+		if was_ready && updated.status == "created" {
+			self.install_game(instance_id, op).await
+		} else {
+			Ok(updated)
+		}
 	}
 	async fn manifest_plan(
 		&self,
@@ -293,7 +317,10 @@ impl Engine {
 			let needs = plan.added.contains(&file.path) || plan.changed.contains(&file.path);
 			if !needs {
 				if let Some(record) = old.get(&file.path) {
-					records.push((*record).clone());
+					let mut record = (*record).clone();
+					record.kind = official_content_kind(&file.path).into();
+					record.version_number = Some(manifest.version.clone());
+					records.push(record);
 				}
 				continue;
 			}
@@ -323,7 +350,7 @@ impl Engine {
 				project_id: None,
 				version_id: None,
 				name: file.path.rsplit('/').next().unwrap_or(&file.path).into(),
-				kind: "official_file".into(),
+				kind: official_content_kind(&file.path).into(),
 				path: file.path.clone(),
 				sha512: hash,
 				enabled: true,
@@ -382,6 +409,17 @@ impl Engine {
 		Ok(())
 	}
 }
+fn official_content_kind(path: &str) -> &'static str {
+	if path.starts_with("mods/") && path.ends_with(".jar") {
+		"mod"
+	} else if path.starts_with("resourcepacks/") {
+		"resourcepack"
+	} else if path.starts_with("shaderpacks/") {
+		"shader"
+	} else {
+		"official_file"
+	}
+}
 fn validate_channel(channel: &str) -> Result<()> {
 	if !["stable", "beta"].contains(&channel) {
 		return Err(Error::Invalid("unsupported release channel".into()));
@@ -391,7 +429,7 @@ fn validate_channel(channel: &str) -> Result<()> {
 pub fn validate_manifest(manifest: &EditionManifest, id: &str, channel: &str) -> Result<()> {
 	if manifest.schema_version != 1
 		|| manifest.id != id
-		|| !["minimal", "standard", "ultra"].contains(&id)
+		|| id != "ncreate-server"
 		|| manifest.release_channel != channel
 		|| manifest.version.is_empty()
 		|| manifest.minecraft.is_empty()
@@ -540,22 +578,22 @@ fn server_list(servers: &[crate::ManifestServer]) -> Vec<u8> {
 mod tests {
 	use super::*;
 	fn fixture() -> EditionManifest {
-		serde_json::from_value(serde_json::json!({"schemaVersion":1,"id":"minimal","version":"1.0.0","minecraft":"1.21.1","loader":{"kind":"vanilla","version":null},"files":[{"path":"mods/a.jar","url":"https://cdn.modrinth.com/a.jar","sha256":"a".repeat(64),"size":5,"required":true,"updatePolicy":"managed_only"}],"java":{"major":21},"memory":{"minimumMb":512,"recommendedMb":2048,"maximumMb":8192},"releaseChannel":"stable"})).unwrap()
+		serde_json::from_value(serde_json::json!({"schemaVersion":1,"id":"ncreate-server","version":"1.0.0","minecraft":"1.21.1","loader":{"kind":"vanilla","version":null},"files":[{"path":"mods/a.jar","url":"https://cdn.modrinth.com/a.jar","sha256":"a".repeat(64),"size":5,"required":true,"updatePolicy":"managed_only"}],"java":{"major":21},"memory":{"minimumMb":512,"recommendedMb":2048,"maximumMb":8192},"releaseChannel":"stable"})).unwrap()
 	}
 	#[test]
 	fn schema_uses_sha256_and_protects_user_saves() {
 		let mut m = fixture();
-		assert!(validate_manifest(&m, "minimal", "stable").is_ok());
+		assert!(validate_manifest(&m, "ncreate-server", "stable").is_ok());
 		m.files[0].path = "saves/world/level.dat".into();
-		assert!(validate_manifest(&m, "minimal", "stable").is_err());
+		assert!(validate_manifest(&m, "ncreate-server", "stable").is_err());
 		m.files[0].path = "Saves/world/level.dat".into();
-		assert!(validate_manifest(&m, "minimal", "stable").is_err());
+		assert!(validate_manifest(&m, "ncreate-server", "stable").is_err());
 		m.files[0].path = "mods/setup.exe".into();
-		assert!(validate_manifest(&m, "minimal", "stable").is_err());
+		assert!(validate_manifest(&m, "ncreate-server", "stable").is_err());
 	}
 	#[test]
 	fn channel_is_explicit() {
-		assert!(validate_manifest(&fixture(), "minimal", "beta").is_err());
+		assert!(validate_manifest(&fixture(), "ncreate-server", "beta").is_err());
 	}
 	#[tokio::test]
 	async fn default_github_provider_can_still_show_coming_soon() {
@@ -567,8 +605,8 @@ mod tests {
 			.unwrap();
 		let engine = Engine::open(root.path().to_path_buf(), pool).await.unwrap();
 		assert_eq!(
-			engine.providers.lock().await.stable["minimal"],
-			"https://raw.githubusercontent.com/Yozekkk/ncreate-manifests/main/channels/stable/minimal.json"
+			engine.providers.lock().await.stable["ncreate-server"],
+			"https://raw.githubusercontent.com/Yozekkk/ncreate-pack/main/channels/stable/ncreate-server.json"
 		);
 		engine
 			.configure_manifest_providers(ManifestProviders::default())

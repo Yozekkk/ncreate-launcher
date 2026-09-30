@@ -117,16 +117,16 @@ It has no HTTP, filesystem or shell plugin grants.
 | `https://repo.maven.apache.org`, `https://repo1.maven.org` | Runtime Maven dependencies referenced by trusted loader metadata |
 | `https://api.github.com` | Official authlib-injector release metadata and NCreate Launcher release discovery as JSON; no HTML scraping |
 | `https://github.com/Yozekkk/ncreate-launcher/releases/download/...` | Signed launcher update metadata and AppImage/NSIS artifacts; the Tauri updater verifies the signature before installation |
-| `https://raw.githubusercontent.com/Yozekkk/ncreate-manifests/main/channels/...` | Stable/Beta Minimal, Standard and Ultra manifests; HTTP 404 means no pack has been published |
-| `https://github.com/Yozekkk/ncreate-manifests/releases/download/...` | Immutable, SHA-256-verified official pack files |
+| `https://raw.githubusercontent.com/Yozekkk/ncreate-pack/main/channels/...` | Stable/Beta NCreate Server manifests; the published Stable channel points to version 1.0.2 |
+| `https://raw.githubusercontent.com/Yozekkk/ncreate-pack/pack-ncreate-server-stable-v.../packs/...` | Immutable Git-tagged NCreate configuration and resource files, verified by SHA-256 |
+| `https://cdn.modrinth.com`, `https://maven.ftb.dev`, `https://mediafilez.forgecdn.net` | 147 reviewed mod downloads; exact URLs, sizes and SHA-256 hashes are pinned in the pack manifest |
 | `https://objects.githubusercontent.com`, `https://release-assets.githubusercontent.com` | HTTPS redirects for GitHub release assets |
 | `https://authserver.ely.by` | Ely.by authenticate, validate, refresh and invalidate |
 | `https://account.ely.by/oauth2/v1`, `/api/oauth2/v1/token`, `/api/account/v1/info` | Optional registered Ely.by OAuth application flow |
 
-NCreate manifest source URLs default to the six public GitHub channel paths above.
+The NCreate manifest source defaults to the Stable/Beta GitHub channel paths above.
 An explicitly saved `manifest-providers.json` in the separate NCreate data
-directory overrides that default. No production Minimal/Standard/Ultra content
-is invented. Explicitly configured
+directory overrides that default. Only the published NCreate Server pack is offered. Explicitly configured
 manifest origins must use public HTTPS; private DNS targets, URL credentials,
 plaintext URLs and nonstandard ports are rejected. No shell command may be
 supplied by a downloaded edition manifest.

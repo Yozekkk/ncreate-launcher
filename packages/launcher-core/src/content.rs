@@ -256,11 +256,6 @@ impl Engine {
 	)> {
 		let instance = self.instance(&request.instance_id).await?;
 		let folder = content_folder(&request.kind)?;
-		if instance.kind == "official" {
-			return Err(Error::Invalid(
-				"official content is managed by its edition manifest".into(),
-			));
-		}
 		let existing = self.content(&instance.id).await?;
 		// Resolve required versions even when that project is already installed: a
 		// pinned dependency may need an upgrade alongside its parent project.

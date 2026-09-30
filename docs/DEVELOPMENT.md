@@ -2,8 +2,8 @@
 
 Официальный desktop-лаунчер NCreate. Tauri v2, Rust, Vue 3.
 Stage 2 добавляет отдельную библиотеку пользовательских instances и публичный
-каталог Modrinth. Minimal, Standard и Ultra остаются недоступными до появления
-настоящих официальных manifests.
+каталог Modrinth. Текущий `main` также подключает официальную сборку NCreate
+Server 1.0.2 из отдельного [репозитория сборки](https://github.com/Yozekkk/ncreate-pack).
 
 Это изменённая GPLv3-версия desktop-кода Modrinth App, а не приложение Modrinth.
 Microsoft/Xbox/XSTS/Minecraft pipeline извлечён из актуальной main; серверная
@@ -41,7 +41,9 @@ pnpm app:build --bundles appimage,deb
 
 Linux artifacts: `target/release/bundle/appimage/` и `target/release/bundle/deb/`.
 Windows NSIS собирается workflow на Windows x64. [Инсталляторы и обновления](RELEASE.md).
-Updater отключён до настройки собственных signing keys. Modrinth updater не подключён.
+Подписанный Tauri updater настроен в текущем `main`, но установленная публичная
+v0.5.0 была собрана раньше и требует ручного перехода на следующий подписанный
+выпуск. Modrinth updater не подключён.
 
 `scripts/build.mjs` присваивает готовым пакетам имена
 `NCreate-Launcher-<version>.AppImage`, `NCreate-Launcher-<version>-amd64.deb` и
@@ -69,13 +71,12 @@ Skin providers: Mojang, Ely.by, Fallback. Stage 2 отделяет AccountProvid
 CredentialReference. Ely.by authentication использует официальные endpoints;
 токены остаются в native keyring, пароль не записывается на диск.
 
-Edition definitions: `apps/app-frontend/src/models.ts`. Все manifests сейчас `null`.
-Подключение установки регистрирует `configureEditionInstaller(handler)`
-из `apps/app-frontend/src/edition-installer.ts` и назначает доверенный manifest
-нужной edition. UI уже выводит доступность и прогресс через этот adapter. Без
-обработчика и manifest кнопка остаётся disabled; production manifest URLs отсутствуют.
-Backend установки находится в `packages/launcher-core`. См.
-[Stage 2 architecture](STAGE2-ARCHITECTURE.md).
+Официальная карточка NCreate Server находится в `apps/app-frontend/src/App.vue`.
+Production manifest URL задаётся в `packages/launcher-core/src/models.rs`,
+установка и обновление — в `packages/launcher-core/src/editions.rs`. Публикация
+сборки отделена от лаунчера; её исходники и инструкция находятся в
+[ncreate-pack](https://github.com/Yozekkk/ncreate-pack). См. [обновления](UPDATES.md)
+и [Stage 2 architecture](STAGE2-ARCHITECTURE.md).
 
 ## Проверка интерфейса и история v0.1.0
 

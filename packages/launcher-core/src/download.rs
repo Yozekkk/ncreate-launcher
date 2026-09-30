@@ -640,6 +640,8 @@ pub(crate) fn trusted_host(host: &str) -> bool {
 			| "maven.quiltmc.org"
 			| "maven.minecraftforge.net"
 			| "maven.neoforged.net"
+			| "maven.ftb.dev"
+			| "mediafilez.forgecdn.net"
 			| "api.github.com"
 			| "github.com"
 			| "raw.githubusercontent.com"

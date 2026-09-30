@@ -217,6 +217,8 @@ pub struct ManifestServer {
 pub struct EditionManifest {
 	pub schema_version: u32,
 	pub id: String,
+	#[serde(default)]
+	pub name: String,
 	pub version: String,
 	pub minecraft: String,
 	pub loader: ManifestLoader,
@@ -239,13 +241,13 @@ pub struct ManifestProviders {
 impl ManifestProviders {
 	pub fn github_ncreate() -> Self {
 		fn channel(name: &str) -> BTreeMap<String, String> {
-			["minimal", "standard", "ultra"]
+			["ncreate-server"]
 				.into_iter()
 				.map(|id| {
 					(
 						id.into(),
 						format!(
-							"https://raw.githubusercontent.com/Yozekkk/ncreate-manifests/main/channels/{name}/{id}.json"
+							"https://raw.githubusercontent.com/Yozekkk/ncreate-pack/main/channels/{name}/{id}.json"
 						),
 					)
 				})

@@ -10,18 +10,23 @@ import ElyLoginDialog from './components/ElyLoginDialog.vue'
 import LibraryPage from './components/LibraryPage.vue'
 import ContentPage from './components/ContentPage.vue'
 import OperationPanel from './components/OperationPanel.vue'
-import { operationPercent, useGameOperations } from './game-operations'
+import { isTerminalPhase, operationPercent, useGameOperations } from './game-operations'
 import { parseLauncherRoute, type Page } from './routes'
 import {
-	editions,
+	officialEdition,
 	type Account,
-	type Edition,
 	type EditionId,
 	type Settings,
 	type Skin,
 	type Snapshot,
 } from './models'
-import { gameApi, type EditionAvailability } from './game-api'
+import {
+	gameApi,
+	loaderNames,
+	type EditionAvailability,
+	type Instance,
+	type UpdatePlan,
+} from './game-api'
 import { configureEditionInstaller, canInstallEdition, installEdition } from './edition-installer'
 import { formatUpdateBytes, useLauncherUpdates } from './launcher-updates'
 import { renderProjectMarkdown } from './project-markdown'
@@ -45,24 +50,101 @@ const snapshot = ref<Snapshot | null>(null)
 const draft = ref<Settings | null>(null)
 const loading = ref(true)
 const busy = ref(false)
-const editionAvailability = ref<EditionAvailability[]>([])
-const editionModels = computed(() =>
-	editions.map((edition) => {
-		const available = editionAvailability.value.find(
-			(item) => item.id === edition.id && item.available,
-		)
-		return { ...edition, manifest: available?.manifest ? JSON.stringify(available.manifest) : null }
-	}),
+const editionAvailability = ref<EditionAvailability | null>(null)
+const editionLoading = ref(true)
+const currentEdition = computed(() =>
+	editionAvailability.value?.channel === (snapshot.value?.settings.release_channel || 'stable')
+		? editionAvailability.value
+		: null,
+)
+const editionModel = computed(() => ({
+	...officialEdition,
+	manifest:
+		currentEdition.value?.available && currentEdition.value.manifest
+			? JSON.stringify(currentEdition.value.manifest)
+			: null,
+}))
+const officialManifest = computed(() =>
+	currentEdition.value?.available ? currentEdition.value.manifest : null,
+)
+const officialInstance = ref<Instance | null>(null)
+const officialLoading = ref(true)
+const officialLoadError = ref(false)
+const officialUpdate = ref<UpdatePlan | null>(null)
+const officialUpdatePhase = ref<'checking' | 'current' | 'available' | 'error'>('checking')
+const officialBusy = ref(false)
+const officialJob = computed(() =>
+	operations.active.value.find(
+		(job) =>
+			(job.operation === 'install_edition' && !job.instance_id) ||
+			(['update_edition', 'install_game'].includes(job.operation) &&
+				job.instance_id === officialInstance.value?.id),
+	),
+)
+const officialDownloadBytes = computed(
+	() => officialManifest.value?.files.reduce((sum, file) => sum + file.size, 0) ?? null,
+)
+const bytes = new Intl.NumberFormat('ru', { maximumFractionDigits: 1 })
+const officialSize = computed(() =>
+	officialDownloadBytes.value === null
+		? 'Размер уточняется'
+		: `Файлы сборки: ${bytes.format(officialDownloadBytes.value / 1048576)} МБ`,
 )
 let editionGeneration = 0
 async function loadEditions() {
 	const generation = ++editionGeneration
-	editionAvailability.value = []
+	editionLoading.value = true
 	try {
 		const result = await gameApi.editions(snapshot.value?.settings.release_channel || 'stable')
-		if (mounted && generation === editionGeneration) editionAvailability.value = result
+		if (mounted && generation === editionGeneration)
+			editionAvailability.value = result.find((item) => item.id === officialEdition.id) ?? null
 	} catch {
-		/* No usable manifest keeps editions unavailable. */
+		if (mounted && generation === editionGeneration) editionAvailability.value = null
+	} finally {
+		if (mounted && generation === editionGeneration) editionLoading.value = false
+	}
+}
+let officialGeneration = 0
+async function loadOfficialState() {
+	const generation = ++officialGeneration
+	officialLoading.value = true
+	try {
+		const instances = await gameApi.instances()
+		if (!mounted || generation !== officialGeneration) return
+		officialLoadError.value = false
+		const instance = instances.find(
+			(item) => item.kind === 'official' && item.edition === officialEdition.id,
+		)
+		officialInstance.value = instance ?? null
+		officialUpdate.value = null
+		if (!instance) {
+			officialUpdatePhase.value = 'current'
+			return
+		}
+		officialUpdatePhase.value = 'checking'
+		try {
+			const plan = await gameApi.checkEditionUpdate(
+				instance.id,
+				snapshot.value?.settings.release_channel || 'stable',
+			)
+			if (mounted && generation === officialGeneration) {
+				officialUpdate.value = plan
+				officialUpdatePhase.value =
+					plan.from_version !== plan.to_version ||
+					plan.added.length + plan.changed.length + plan.removed.length > 0
+						? 'available'
+						: 'current'
+			}
+		} catch {
+			if (mounted && generation === officialGeneration) officialUpdatePhase.value = 'error'
+		}
+	} catch {
+		if (mounted && generation === officialGeneration) {
+			officialLoadError.value = true
+			officialUpdatePhase.value = 'error'
+		}
+	} finally {
+		if (mounted && generation === officialGeneration) officialLoading.value = false
 	}
 }
 configureEditionInstaller(async ({ editionId }) => {
@@ -74,9 +156,29 @@ configureEditionInstaller(async ({ editionId }) => {
 })
 watch(
 	() => snapshot.value?.settings.release_channel,
-	() => void loadEditions(),
+	() => {
+		void loadEditions()
+		void loadOfficialState()
+	},
+)
+watch(
+	() =>
+		operations.jobs.value
+			.filter(
+				(job) =>
+					isTerminalPhase(job.phase) &&
+					['install_edition', 'update_edition', 'install_game', 'launch', 'stop'].includes(
+						job.operation,
+					),
+			)
+			.map((job) => job.id)
+			.join(','),
+	() => void loadOfficialState(),
 )
 const installingEdition = ref<EditionId | null>(null)
+const officialActionBusy = computed(
+	() => installingEdition.value !== null || officialBusy.value || !!officialJob.value,
+)
 const error = ref('')
 const notice = ref('')
 let noticeTimer: ReturnType<typeof setTimeout> | undefined
@@ -157,21 +259,92 @@ function connectivity() {
 		for (const account of snapshot.value?.accounts || [])
 			if (skins[account.uuid]?.status === 'network_error') void loadSkin(account, true)
 }
-function editionHelp(edition: Edition) {
-	return canInstallEdition(edition)
-		? `Установить NCreate ${edition.name}`
-		: 'Сборка появится в следующем обновлении NCreate Launcher.'
-}
-async function startEditionInstall(edition: Edition) {
-	if (installingEdition.value || !canInstallEdition(edition)) return
-	installingEdition.value = edition.id
+async function startEditionInstall() {
+	if (
+		officialActionBusy.value ||
+		officialInstance.value ||
+		officialLoadError.value ||
+		!canInstallEdition(editionModel.value)
+	)
+		return
+	installingEdition.value = officialEdition.id
 	error.value = ''
 	try {
-		if (!(await installEdition(edition))) notice.value = 'Установка отменена'
+		if (!(await installEdition(editionModel.value))) notice.value = 'Установка отменена'
 	} catch (reason) {
 		error.value = errorMessage(reason)
 	} finally {
 		installingEdition.value = null
+	}
+}
+async function resumeOfficialInstall() {
+	const instance = officialInstance.value
+	if (!instance || officialActionBusy.value) return
+	officialBusy.value = true
+	error.value = ''
+	try {
+		await operations.track(await gameApi.installGame(instance.id))
+		notice.value = 'Продолжаем установку Minecraft'
+	} catch (reason) {
+		error.value = errorMessage(reason)
+	} finally {
+		officialBusy.value = false
+	}
+}
+async function updateOfficial() {
+	const instance = officialInstance.value
+	if (!instance || officialActionBusy.value) return
+	officialBusy.value = true
+	error.value = ''
+	try {
+		const plan = await gameApi.checkEditionUpdate(
+			instance.id,
+			snapshot.value?.settings.release_channel || 'stable',
+		)
+		if (plan.conflicts.length) {
+			error.value =
+				'Обновление затрагивает ваши файлы. Откройте сборку в библиотеке, чтобы проверить конфликт.'
+			return
+		}
+		if (
+			plan.from_version === plan.to_version &&
+			!plan.added.length &&
+			!plan.changed.length &&
+			!plan.removed.length
+		) {
+			notice.value = 'Сборка уже актуальна'
+			return
+		}
+		await operations.track(
+			await gameApi.applyEditionUpdate(
+				instance.id,
+				snapshot.value?.settings.release_channel || 'stable',
+			),
+		)
+		notice.value = 'Обновление сборки началось'
+	} catch (reason) {
+		error.value = errorMessage(reason)
+	} finally {
+		officialBusy.value = false
+	}
+}
+async function playOfficial() {
+	const instance = officialInstance.value
+	if (!instance || instance.status !== 'ready' || officialActionBusy.value) return
+	if (!activeAccount.value) {
+		error.value = 'Добавьте или выберите активный аккаунт на странице «Аккаунты».'
+		return
+	}
+	officialBusy.value = true
+	error.value = ''
+	try {
+		await gameApi.launch(instance.id)
+		notice.value = 'Minecraft запущен'
+		await loadOfficialState()
+	} catch (reason) {
+		error.value = errorMessage(reason)
+	} finally {
+		officialBusy.value = false
 	}
 }
 async function loadSkin(account: Account, force = false) {
@@ -559,86 +732,182 @@ onUnmounted(() => {
 					<div class="hero-heading">
 						<div>
 							<p class="eyebrow"><span /> ТВОЙ МИР. ТВОИ ПРАВИЛА.</p>
-							<h1>Выбери свою<br />версию <span>NCreate</span></h1>
+							<h1>Твой путь в мир<br /><span>NCreate</span></h1>
 							<p class="page-intro">
-								Три способа открыть один большой мир.<br />Найди тот, который подходит твоему
-								компьютеру.
+								Установи официальную сборку и присоединяйся к серверу.<br />Все файлы и обновления
+								лаунчер подготовит сам.
 							</p>
 						</div>
 						<div class="hero-mark" aria-hidden="true">
 							N<span>C</span><small>CREATE YOUR WORLD</small>
 						</div>
 					</div>
-					<div class="edition-grid">
-						<article
-							v-for="edition in editionModels"
-							:key="edition.id"
-							class="edition-card"
-							:class="[edition.id, { recommended: edition.recommended }]"
-						>
-							<div class="edition-top">
-								<span class="edition-index"
-									>{{ edition.id === 'minimal' ? '01' : edition.id === 'standard' ? '02' : '03' }} /
-									NCREATE</span
-								><span v-if="edition.recommended" class="recommend-badge"
-									><AppIcon name="check" :size="12" />Рекомендуем</span
-								>
+					<article class="official-pack-card" aria-labelledby="official-pack-title">
+						<div class="official-pack-top">
+							<span>NCREATE / SERVER</span>
+							<span class="official-pack-badge"
+								><AppIcon name="check" :size="13" />Официальная NCreate</span
+							>
+						</div>
+						<div class="official-pack-body">
+							<div class="official-pack-art" aria-hidden="true">
+								<span class="official-pack-halo" />
+								<img src="/brand/logo.webp" width="512" height="512" alt="" />
+								<span class="official-pack-art-word">NCREATE</span>
 							</div>
-							<div class="edition-art">
-								<div class="art-halo" />
-								<img
-									:src="`/brand/${edition.id}.webp`"
-									:alt="
-										edition.id === 'minimal'
-											? 'Кубический компьютер NCreate'
-											: edition.id === 'standard'
-												? 'Оранжевый куб NCreate'
-												: 'Персонаж NCreate в золотой мантии'
-									"
-									width="280"
-									height="235"
-								/><span class="art-word" aria-hidden="true">{{ edition.name }}</span>
-							</div>
-							<div class="edition-copy">
-								<p class="edition-label">{{ edition.label }}</p>
-								<h2>{{ edition.name }}</h2>
-								<p class="edition-description">{{ edition.description }}</p>
-								<ul>
-									<li v-for="feature in edition.features" :key="feature">
-										<AppIcon name="check" :size="14" />{{ feature }}
-									</li>
-								</ul>
-								<div
-									class="coming-soon"
-									:tabindex="canInstallEdition(edition) ? undefined : 0"
-									:aria-label="editionHelp(edition)"
-								>
+							<div class="official-pack-copy">
+								<p class="edition-label">{{ officialEdition.label }}</p>
+								<h2 id="official-pack-title">{{ officialEdition.name }}</h2>
+								<p class="official-pack-description">{{ officialEdition.description }}</p>
+								<dl class="official-pack-facts">
+									<div>
+										<dt>Версия сборки</dt>
+										<dd>
+											{{ officialManifest?.version || officialInstance?.manifest_version || '—' }}
+										</dd>
+									</div>
+									<div>
+										<dt>Minecraft</dt>
+										<dd>
+											{{ officialManifest?.minecraft || officialInstance?.game_version || '—' }}
+										</dd>
+									</div>
+									<div>
+										<dt>Загрузчик</dt>
+										<dd>
+											{{
+												loaderNames[
+													officialManifest?.loader.kind || officialInstance?.loader || 'vanilla'
+												]
+											}}
+											{{
+												officialManifest?.loader.version || officialInstance?.loader_version || ''
+											}}
+										</dd>
+									</div>
+								</dl>
+								<p class="official-pack-size">{{ officialSize }}</p>
+								<p class="official-pack-status" role="status">
+									<span
+										class="official-pack-status-dot"
+										:class="{ active: officialInstance?.status === 'ready' }"
+									/>
+									{{
+										officialLoading || editionLoading
+											? 'Проверяем сборку…'
+											: officialLoadError
+												? 'Не удалось проверить установку'
+												: officialJob
+													? operationTitle(officialJob.operation)
+													: officialInstance?.status === 'running'
+														? 'Игра запущена'
+														: officialInstance &&
+															  !['ready', 'running'].includes(officialInstance.status)
+															? 'Нужно завершить установку Minecraft'
+															: officialInstance && officialUpdatePhase === 'available'
+																? `Доступно обновление ${officialUpdate?.to_version}`
+																: officialInstance && officialUpdatePhase === 'error'
+																	? 'Не удалось проверить обновления'
+																	: officialInstance
+																		? 'Готова к игре'
+																		: canInstallEdition(editionModel)
+																			? 'Готова к установке'
+																			: 'Публикация сборки готовится'
+									}}
+								</p>
+								<div v-if="officialJob" class="official-pack-progress" aria-live="polite">
+									<div class="official-pack-progress-track">
+										<span :style="{ width: `${operationPercent(officialJob) ?? 0}%` }" />
+									</div>
+									<small>{{ operationMessage(officialJob) }}</small>
+								</div>
+								<div class="official-pack-actions">
 									<button
-										class="button full-width"
-										:class="canInstallEdition(edition) ? 'primary' : 'edition-button'"
-										:disabled="!canInstallEdition(edition) || installingEdition !== null"
-										:aria-busy="installingEdition === edition.id"
-										@click="startEditionInstall(edition)"
+										v-if="
+											officialInstance && !['ready', 'running'].includes(officialInstance.status)
+										"
+										class="button primary"
+										:disabled="officialActionBusy"
+										@click="resumeOfficialInstall"
 									>
-										<AppIcon name="game" :size="18" />{{
-											installingEdition === edition.id
+										<AppIcon name="refresh" :size="17" />Завершить установку
+									</button>
+									<button
+										v-else-if="officialInstance && officialUpdatePhase === 'available'"
+										class="button primary"
+										:disabled="officialActionBusy || officialInstance.status === 'running'"
+										@click="updateOfficial"
+									>
+										<AppIcon name="refresh" :size="17" />Обновить
+									</button>
+									<button
+										v-else-if="officialInstance"
+										class="button primary"
+										:disabled="
+											officialActionBusy || officialInstance.status !== 'ready' || !activeAccount
+										"
+										@click="playOfficial"
+									>
+										<AppIcon name="game" :size="17" />{{
+											officialInstance.status === 'running' ? 'Игра запущена' : 'Играть'
+										}}
+									</button>
+									<button
+										v-else
+										class="button primary"
+										:disabled="
+											officialLoading ||
+											officialLoadError ||
+											officialActionBusy ||
+											!canInstallEdition(editionModel)
+										"
+										@click="startEditionInstall"
+									>
+										<AppIcon name="game" :size="17" />{{
+											officialActionBusy
 												? 'Устанавливаем…'
-												: canInstallEdition(edition)
+												: canInstallEdition(editionModel)
 													? 'Установить'
 													: 'Скоро'
 										}}
 									</button>
-									<span class="edition-tooltip" role="tooltip">{{ editionHelp(edition) }}</span>
+									<button
+										v-if="
+											officialInstance &&
+											officialUpdatePhase === 'available' &&
+											officialInstance.status === 'ready'
+										"
+										class="button secondary"
+										:disabled="officialActionBusy || !activeAccount"
+										@click="playOfficial"
+									>
+										Играть
+									</button>
+									<a
+										v-if="officialInstance"
+										class="button subtle"
+										:href="`#/library/${officialInstance.id}`"
+										>Открыть в библиотеке</a
+									>
 								</div>
+								<p
+									v-if="officialInstance?.status === 'ready' && !activeAccount"
+									class="official-pack-hint"
+								>
+									Чтобы играть, <a href="#/accounts">выберите аккаунт Minecraft</a>.
+								</p>
 							</div>
-						</article>
-					</div>
+						</div>
+					</article>
 					<div class="home-footer">
 						<AppIcon name="shield" :size="20" />
 						<p>
-							Твой мир. Твои правила.<span>Сборки появятся в следующем обновлении лаунчера.</span>
+							Твой мир. Твои правила.<span
+								>Сохраняй собственные миры и моды — обновляются только официальные файлы
+								сборки.</span
+							>
 						</p>
-						<span class="release-tag">В РАЗРАБОТКЕ</span>
+						<span class="release-tag">СЕРВЕРНАЯ СБОРКА</span>
 					</div>
 				</section>
 				<LibraryPage

@@ -79,7 +79,6 @@ const availableVersions = computed(() =>
 const compatibleTargets = computed(() =>
 	instances.value.filter(
 		(instance) =>
-			instance.kind !== 'official' &&
 			!['running', 'installing'].includes(instance.status) &&
 			compatibleVersions(versions.value, instance).length > 0,
 	),

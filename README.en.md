@@ -25,7 +25,7 @@
 ## Download
 
 > [!IMPORTANT]
-> **v0.5.0 Beta** is a functional launcher with a Minecraft Library, game installation, and a mod catalog. The official Minimal, Standard, and Ultra editions are still unavailable; other limitations are listed below. Windows and Linux installers are published and SHA-256 verified.
+> **v0.5.0 Beta** is the published launcher with a Minecraft Library, game installation, and a mod catalog. The current `main` branch adds one official pack, **NCreate Server 1.0.2**. Installing it requires the next launcher release: the v0.5.0 binaries below were built before this feature was added.
 
 | Platform                                                                    | v0.5.0 Beta file                   | Download                                                                                                                          |
 | :-------------------------------------------------------------------------- | :--------------------------------- | :-------------------------------------------------------------------------------------------------------------------------------- |
@@ -43,16 +43,16 @@ Compared with v0.1.0, the launcher now has a Minecraft Library and access to the
 - **Game runtime:** Vanilla and Fabric installation and launch were verified on Linux. Forge installation and its running game process were also checked; Quilt and NeoForge have verification limits noted below.
 - **Mods and modpacks:** public Modrinth catalog, search, compatible installation, and mod enable, disable, removal, update, and rollback.
 - **Accounts:** local profiles, Microsoft and Ely.by sign-in protocols, and public Ely.by skins.
-- **NCreate groundwork:** separate manifests, file verification, download management, and recovery after failed updates. The official Minimal, Standard, and Ultra editions are still unavailable.
+- **NCreate Server on current `main`:** one official pack with a published manifest, SHA-256 verification, separate managed files, and recovery after failed updates. No public launcher binary containing this feature has been released yet.
 
 Feature checks are detailed in the [Stage 2 verification report](docs/STAGE2-VERIFICATION.md). A successful sign-in with a real Microsoft or Ely.by account still requires an owner test.
 
 ## Preview
 
-These are real Linux desktop captures from the current `main` branch.
+These are real Linux desktop captures. The Home image shows the current `main` branch; the other screens were captured during v0.5.0 development.
 
 <p align="center">
-  <img src="docs/screenshots/stage2/home.png" alt="NCreate Launcher home with Minimal, Standard, and Ultra" width="900">
+  <img src="docs/screenshots/official-home.png" alt="NCreate Launcher home with the official NCreate Server pack" width="900">
 </p>
 
 <table>
@@ -92,11 +92,11 @@ Modrinth is a content source here. **NCreate Launcher is not the official Modrin
 
 Offline and Ely.by profiles do not grant access to servers that require a licensed Microsoft account. See the [Stage 2 verification report](docs/STAGE2-VERIFICATION.md) for the evidence boundaries.
 
-## Official NCreate editions
+## Official NCreate Server pack
 
-Minimal, Standard, and Ultra remain distinct NCreate editions. Their cards appear on Home, but installation buttons are disabled: **the official NCreate packs are still in preparation**. Manifest and update handling passed fixture tests; production manifests have not been published.
+The current `main` branch offers one [official NCreate Server pack](https://github.com/Yozekkk/ncreate-pack). Its Stable manifest has been published: Minecraft 1.21.1, NeoForge 21.1.250, 147 mods from verified upstream sources, configuration files, and the server address from the source pack. Updates download changed managed files, verify SHA-256, and preserve user mods, worlds, and settings. The Library marks the installed pack as “Official NCreate”; custom instances remain available.
 
-The public v0.5.0 binary has no self-updater. The current `main` branch prepares a signed updater with Stable/Beta channels; it will become active after the next signed release. Users of the installed v0.5.0 build will need to download that installer once. Official packs will be discovered through the [separate manifest repository](https://github.com/Yozekkk/ncreate-manifests) when real releases are published there.
+**The published v0.5.0 binaries do not yet include this card or pack installation.** The next binary release will include it; for now, it can be tested by building `main`. The public v0.5.0 binary also has no self-updater. The signed updater on `main` will become active after the next signed release, which v0.5.0 users will need to install manually once.
 
 ## Installation
 
@@ -192,6 +192,7 @@ On Windows, use `pnpm app:build --bundles nsis`. See the [development guide](doc
 - [Requirements and limitations](docs/REQUIREMENTS.md)
 - [Release process](docs/RELEASE.md)
 - [Launcher and official pack updates](docs/UPDATES.md)
+- [Official server pack and verification](docs/OFFICIAL-PACK.md)
 - [Upstream source audit](docs/UPSTREAM-AUDIT.md)
 - [v0.5.0 release notes](docs/releases/v0.5.0.en.md)
 

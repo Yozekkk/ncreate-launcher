@@ -1,5 +1,3 @@
-import { messages } from './i18n'
-
 export type Account = {
 	uuid: string
 	nickname: string
@@ -29,36 +27,18 @@ export type Skin = {
 	texture: string | null
 	status: 'ready' | 'missing' | 'network_error'
 }
-export type EditionId = 'minimal' | 'standard' | 'ultra'
+export type EditionId = 'ncreate-server'
 export type Edition = {
 	id: EditionId
 	name: string
 	label: string
 	description: string
-	features: string[]
-	recommended: boolean
 	manifest: string | null
 }
-export const editions: Edition[] = [
-	{
-		id: 'minimal',
-		name: 'Minimal',
-		...messages.editions.minimal,
-		recommended: false,
-		manifest: null,
-	},
-	{
-		id: 'standard',
-		name: 'Standard',
-		...messages.editions.standard,
-		recommended: true,
-		manifest: null,
-	},
-	{
-		id: 'ultra',
-		name: 'Ultra',
-		...messages.editions.ultra,
-		recommended: false,
-		manifest: null,
-	},
-]
+export const officialEdition: Edition = {
+	id: 'ncreate-server',
+	name: 'NCreate Server',
+	label: 'Официальная серверная сборка',
+	description: 'Официальная сборка для игры на сервере NCreate.',
+	manifest: null,
+}
