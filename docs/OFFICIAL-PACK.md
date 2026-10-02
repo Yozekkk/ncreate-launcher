@@ -19,4 +19,4 @@ NCREATE_PACK_TEST_ROOT=/tmp/ncreate-pack-smoke cargo test --locked -p ncreate-la
 NCREATE_PACK_TEST_ROOT=/tmp/ncreate-pack-smoke cargo test --locked -p ncreate-launcher-core --test live_official_launch -- --ignored --nocapture
 ```
 
-Для запуска нужен Java 21 и графическая Linux-сессия. Публичный бинарный релиз v0.5.0 был собран до появления этой функции; исходники текущего `main` содержат её. Новый launcher release следует создавать только после отдельной проверки его пакетов.
+Для запуска нужен Java 21 и графическая Linux-сессия. Публичный бинарный выпуск v0.6.0 Beta включает карточку, установку и обновление официальной сборки; пользователям v0.5.0 требуется однократно установить новый выпуск вручную. Установка NeoForge и игровой процесс сборки 1.0.2 проверены на Linux, но подключение к серверу отдельно не проверялось.
