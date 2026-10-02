@@ -419,6 +419,7 @@ fn run() -> std::result::Result<(), Box<dyn std::error::Error>> {
 		core_commands::core_install_edition,
 		core_commands::core_check_edition_update,
 		core_commands::core_apply_edition_update,
+		core_commands::core_resume_edition_install,
 		launcher_updates::launcher_check_update,
 		launcher_updates::launcher_install_update,
 		cancel_login,
@@ -473,6 +474,7 @@ fn run() -> std::result::Result<(), Box<dyn std::error::Error>> {
 		core_commands::core_install_edition,
 		core_commands::core_check_edition_update,
 		core_commands::core_apply_edition_update,
+		core_commands::core_resume_edition_install,
 		launcher_updates::launcher_check_update,
 		launcher_updates::launcher_install_update,
 		cancel_login

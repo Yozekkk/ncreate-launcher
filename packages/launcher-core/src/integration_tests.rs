@@ -245,6 +245,73 @@ async fn metadata_only_official_update_recognizes_existing_mods() {
 	);
 }
 #[tokio::test]
+async fn unfinished_official_install_adopts_only_matching_neoforge_defaults() {
+	let (_dir, e) = engine().await;
+	configure(&e).await;
+	let mut instance = e
+		.create_instance(create("NCreate Server", Loader::Neoforge))
+		.await
+		.unwrap();
+	instance.kind = "official".into();
+	instance.edition = Some("ncreate-server".into());
+	e.save_instance(&instance).await.unwrap();
+	let root = Path::new(&instance.directory);
+	tokio::fs::create_dir_all(root.join("config"))
+		.await
+		.unwrap();
+	tokio::fs::write(root.join("config/fml.toml"), b"default")
+		.await
+		.unwrap();
+	tokio::fs::write(root.join("config/user.json"), b"user")
+		.await
+		.unwrap();
+	let mut m = manifest(
+		"1.0.2",
+		&[
+			("config/fml.toml", b"default"),
+			("config/user.json", b"user"),
+		],
+	);
+	m["loader"] = json!({"kind":"neoforge","version":"21.1.250"});
+	install_manifest(
+		&e,
+		&m,
+		&[
+			("config/fml.toml", b"default"),
+			("config/user.json", b"user"),
+		],
+	);
+	let plan = e
+		.check_edition_update(&instance.id, "stable")
+		.await
+		.unwrap();
+	assert_eq!(plan.conflicts, vec!["config/user.json"]);
+	tokio::fs::write(root.join("config/fml.toml"), b"modified")
+		.await
+		.unwrap();
+	let plan = e
+		.check_edition_update(&instance.id, "stable")
+		.await
+		.unwrap();
+	assert!(plan.conflicts.contains(&"config/fml.toml".into()));
+	tokio::fs::write(root.join("config/fml.toml"), b"default")
+		.await
+		.unwrap();
+	tokio::fs::remove_file(root.join("config/user.json"))
+		.await
+		.unwrap();
+	instance.status = "ready".into();
+	instance.loader_version = Some("21.1.250".into());
+	e.save_instance(&instance).await.unwrap();
+	let resumed = e
+		.resume_edition_install(&instance.id, "stable", &e.begin("resume_edition", None))
+		.await
+		.unwrap();
+	assert_eq!(resumed.status, "ready");
+	assert_eq!(resumed.manifest_version.as_deref(), Some("1.0.2"));
+	assert_eq!(e.content(&instance.id).await.unwrap().len(), 2);
+}
+#[tokio::test]
 async fn hash_failure_and_modified_user_files_do_not_apply_update() {
 	let (_dir, e) = engine().await;
 	configure(&e).await;

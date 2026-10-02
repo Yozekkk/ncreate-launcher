@@ -202,6 +202,19 @@ impl Engine {
 			Ok(updated)
 		}
 	}
+	pub async fn resume_edition_install(
+		&self,
+		instance_id: &str,
+		channel: &str,
+		op: &Operation,
+	) -> Result<Instance> {
+		let updated = self.apply_edition_update(instance_id, channel, op).await?;
+		if updated.status == "created" {
+			self.install_game(instance_id, op).await
+		} else {
+			Ok(updated)
+		}
+	}
 	async fn manifest_plan(
 		&self,
 		instance: &Instance,
@@ -259,7 +272,19 @@ impl Engine {
 			} else {
 				added.push(file.path.clone());
 				bytes = bytes.saturating_add(file.size);
-				if target.exists() {
+				let pristine_neoforge_default = instance.kind == "official"
+					&& instance.loader == crate::Loader::Neoforge
+					&& instance.manifest_version.is_none()
+					&& [
+						"config/fml.toml",
+						"config/neoforge-client.toml",
+						"config/neoforge-common.toml",
+					]
+					.contains(&file.path.as_str())
+					&& crate::download::verify_file(&target, &file.sha256, "sha256", file.size)
+						.await
+						.is_ok();
+				if target.exists() && !pristine_neoforge_default {
 					conflicts.push(file.path.clone());
 				}
 			}
@@ -336,9 +361,24 @@ impl Engine {
 			remaining_files -= 1;
 			op.edition_files_remaining(remaining_files, total_files);
 			let hash = crate::download::hash_file(&path).await?;
+			// A pristine loader-generated config may be adopted during recovery. The
+			// transaction still needs its current hash to replace it safely.
+			let before_hash = if let Some(previous) = old.get(&file.path) {
+				Some(previous.sha512.clone())
+			} else {
+				let current = contained(&self.instance_path(&instance.id)?, &file.path)?;
+				if current.exists() {
+					crate::download::verify_file(&current, &file.sha256, "sha256", file.size)
+						.await
+						.map_err(|_| Error::Invalid(format!("user file changed: {}", file.path)))?;
+					Some(crate::download::hash_file(&current).await?)
+				} else {
+					None
+				}
+			};
 			changes.push(Change {
 				path: file.path.clone(),
-				before_hash: old.get(&file.path).map(|c| c.sha512.clone()),
+				before_hash,
 				after_hash: Some(hash.clone()),
 			});
 			records.push(InstalledContent {

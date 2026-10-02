@@ -121,7 +121,10 @@ async function loadRollbackAvailability() {
 }
 async function loadOfficialUpdateStatus() {
 	const generation = ++officialUpdateGeneration
-	const official = instances.value.filter((instance) => instance.kind === 'official')
+	const official = instances.value.filter(
+		(instance) =>
+			instance.kind === 'official' && instance.status === 'ready' && !!instance.manifest_version,
+	)
 	officialUpdateStatus.value = Object.fromEntries(
 		official.map((instance) => [instance.id, { phase: 'checking' }]),
 	)
@@ -335,8 +338,14 @@ async function installOrPlay(instance: Instance) {
 		await operation(() => gameApi.stop(instance.id), 'Игра остановлена')
 		return
 	}
-	if (instance.status !== 'ready') {
-		await operation(async () => props.operations.track(await gameApi.installGame(instance.id)))
+	if (instance.status !== 'ready' || (instance.kind === 'official' && !instance.manifest_version)) {
+		await operation(async () =>
+			props.operations.track(
+				await (instance.kind === 'official'
+					? gameApi.resumeEditionInstall(instance.id, props.settings.release_channel)
+					: gameApi.installGame(instance.id)),
+			),
+		)
 		return
 	}
 	if (!props.accountName) {
@@ -536,7 +545,11 @@ onUnmounted(() => {
 					<span v-if="current.kind === 'official'" class="official-library-badge"
 						><AppIcon name="check" :size="12" />Официальная NCreate</span
 					>
-					<span class="quiet-badge">{{ statusLabel(current.status) }}</span>
+					<span class="quiet-badge">{{
+						current.kind === 'official' && !current.manifest_version
+							? 'Требуется завершить установку'
+							: statusLabel(current.status)
+					}}</span>
 					<p>
 						{{ modCountLabel(current.mod_count ?? mods.length) }} ·
 						{{ (current.memory_mb / 1024).toFixed(1) }} ГБ RAM
@@ -546,16 +559,23 @@ onUnmounted(() => {
 				<button
 					class="button primary"
 					:disabled="
-						busy || instanceBusy(current.id) || (current.status === 'ready' && !accountName)
+						busy ||
+						instanceBusy(current.id) ||
+						(current.status === 'ready' &&
+							(current.kind !== 'official' || !!current.manifest_version) &&
+							!accountName)
 					"
 					@click="installOrPlay(current)"
 				>
 					<AppIcon name="game" />{{
 						current.status === 'running'
 							? 'Остановить'
-							: current.status === 'ready'
+							: current.status === 'ready' &&
+								  (current.kind !== 'official' || !!current.manifest_version)
 								? 'Играть'
-								: 'Установить Minecraft'
+								: current.kind === 'official'
+									? 'Завершить установку'
+									: 'Установить Minecraft'
 					}}
 				</button>
 			</div>
@@ -806,23 +826,35 @@ onUnmounted(() => {
 				>
 				<div class="instance-card-bottom">
 					<span class="instance-state">{{
-						instance.kind === 'official' && officialUpdateStatus[instance.id]?.phase === 'available'
+						instance.status === 'ready' &&
+						!!instance.manifest_version &&
+						instance.kind === 'official' &&
+						officialUpdateStatus[instance.id]?.phase === 'available'
 							? 'Доступно обновление'
-							: statusLabel(instance.status)
+							: instance.kind === 'official' && !instance.manifest_version
+								? 'Требуется завершить установку'
+								: statusLabel(instance.status)
 					}}</span
 					><button
 						class="button primary"
 						:disabled="
-							busy || instanceBusy(instance.id) || (instance.status === 'ready' && !accountName)
+							busy ||
+							instanceBusy(instance.id) ||
+							(instance.status === 'ready' &&
+								(instance.kind !== 'official' || !!instance.manifest_version) &&
+								!accountName)
 						"
 						@click="installOrPlay(instance)"
 					>
 						<AppIcon name="game" :size="16" />{{
 							instance.status === 'running'
 								? 'Стоп'
-								: instance.status === 'ready'
+								: instance.status === 'ready' &&
+									  (instance.kind !== 'official' || !!instance.manifest_version)
 									? 'Играть'
-									: 'Установить'
+									: instance.kind === 'official'
+										? 'Завершить установку'
+										: 'Установить'
 						}}
 					</button>
 					<details class="instance-menu">

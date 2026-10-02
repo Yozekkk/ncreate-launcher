@@ -745,3 +745,25 @@ pub async fn core_apply_edition_update(
 		},
 	))
 }
+#[tauri::command]
+pub async fn core_resume_edition_install(
+	window: tauri::WebviewWindow,
+	app: tauri::AppHandle,
+	state: tauri::State<'_, AppState>,
+	instance_id: String,
+	channel: String,
+) -> Result<String> {
+	let e = engine(&window, &state).await?;
+	let id = instance_id.clone();
+	Ok(job(
+		app,
+		e,
+		"resume_edition",
+		Some(&id),
+		move |e, op| async move {
+			e.resume_edition_install(&instance_id, &channel, &op)
+				.await
+				.map(|_| ())
+		},
+	))
+}

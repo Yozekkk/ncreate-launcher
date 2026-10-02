@@ -77,7 +77,7 @@ const officialJob = computed(() =>
 	operations.active.value.find(
 		(job) =>
 			(job.operation === 'install_edition' && !job.instance_id) ||
-			(['update_edition', 'install_game'].includes(job.operation) &&
+			(['update_edition', 'resume_edition', 'install_game'].includes(job.operation) &&
 				job.instance_id === officialInstance.value?.id),
 	),
 )
@@ -117,7 +117,7 @@ async function loadOfficialState() {
 		)
 		officialInstance.value = instance ?? null
 		officialUpdate.value = null
-		if (!instance) {
+		if (!instance || instance.status !== 'ready' || !instance.manifest_version) {
 			officialUpdatePhase.value = 'current'
 			return
 		}
@@ -167,9 +167,14 @@ watch(
 			.filter(
 				(job) =>
 					isTerminalPhase(job.phase) &&
-					['install_edition', 'update_edition', 'install_game', 'launch', 'stop'].includes(
-						job.operation,
-					),
+					[
+						'install_edition',
+						'update_edition',
+						'resume_edition',
+						'install_game',
+						'launch',
+						'stop',
+					].includes(job.operation),
 			)
 			.map((job) => job.id)
 			.join(','),
@@ -283,8 +288,13 @@ async function resumeOfficialInstall() {
 	officialBusy.value = true
 	error.value = ''
 	try {
-		await operations.track(await gameApi.installGame(instance.id))
-		notice.value = 'Продолжаем установку Minecraft'
+		await operations.track(
+			await gameApi.resumeEditionInstall(
+				instance.id,
+				snapshot.value?.settings.release_channel || 'stable',
+			),
+		)
+		notice.value = 'Продолжаем установку NCreate'
 	} catch (reason) {
 		error.value = errorMessage(reason)
 	} finally {
@@ -790,7 +800,10 @@ onUnmounted(() => {
 								<p class="official-pack-status" role="status">
 									<span
 										class="official-pack-status-dot"
-										:class="{ active: officialInstance?.status === 'ready' }"
+										:class="{
+											active:
+												officialInstance?.status === 'ready' && !!officialInstance.manifest_version,
+										}"
 									/>
 									{{
 										officialLoading || editionLoading
@@ -802,8 +815,9 @@ onUnmounted(() => {
 													: officialInstance?.status === 'running'
 														? 'Игра запущена'
 														: officialInstance &&
-															  !['ready', 'running'].includes(officialInstance.status)
-															? 'Нужно завершить установку Minecraft'
+															  (!officialInstance.manifest_version ||
+																	!['ready', 'running'].includes(officialInstance.status))
+															? 'Нужно завершить установку NCreate'
 															: officialInstance && officialUpdatePhase === 'available'
 																? `Доступно обновление ${officialUpdate?.to_version}`
 																: officialInstance && officialUpdatePhase === 'error'
@@ -824,7 +838,10 @@ onUnmounted(() => {
 								<div class="official-pack-actions">
 									<button
 										v-if="
-											officialInstance && !['ready', 'running'].includes(officialInstance.status)
+											officialInstance &&
+											officialInstance.status !== 'running' &&
+											(!officialInstance.manifest_version ||
+												!['ready', 'running'].includes(officialInstance.status))
 										"
 										class="button primary"
 										:disabled="officialActionBusy"
@@ -874,6 +891,7 @@ onUnmounted(() => {
 									<button
 										v-if="
 											officialInstance &&
+											officialInstance.manifest_version &&
 											officialUpdatePhase === 'available' &&
 											officialInstance.status === 'ready'
 										"
