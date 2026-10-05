@@ -840,11 +840,6 @@ mod live_pipeline_tests {
 				xuid: None,
 				authlib_injector: None,
 			};
-			if version == "official" {
-				let mut limited = installed.clone();
-				limited.memory_mb = 2048;
-				e.save_instance(&limited).await.unwrap();
-			}
 			let game = e.launch(&installed.id, identity).await.unwrap();
 			println!("REAL LAUNCH {version}: pid {}", game.pid);
 			tokio::time::sleep(Duration::from_secs(if version == "official" {

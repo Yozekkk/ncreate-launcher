@@ -1572,7 +1572,7 @@ onUnmounted(() => {
 				alt="Логотип NCreate"
 			/>
 			<h2 id="about-title">NCreate Launcher</h2>
-			<p class="profile-type">Версия {{ version }} · Библиотека и контент</p>
+			<p class="profile-type">Версия {{ version }} · Stable Release</p>
 			<p>Официальный лаунчер проекта NCreate.</p>
 			<p>
 				Основан на открытом desktop-коде Modrinth App (Theseus). Copyright © Modrinth и участники
