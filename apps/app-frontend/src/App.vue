@@ -7,6 +7,7 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { enable, disable, isEnabled } from '@tauri-apps/plugin-autostart'
 import AppIcon from './components/AppIcon.vue'
 import AppNavbar from './components/AppNavbar.vue'
+import JavaRuntimeDialog from './components/JavaRuntimeDialog.vue'
 import SettingsSidebar from './components/SettingsSidebar.vue'
 import ElyLoginDialog from './components/ElyLoginDialog.vue'
 import LibraryPage from './components/LibraryPage.vue'
@@ -33,6 +34,7 @@ import { configureEditionInstaller, canInstallEdition, installEdition } from './
 import { formatUpdateBytes, useLauncherUpdates } from './launcher-updates'
 import { renderProjectMarkdown } from './project-markdown'
 import { messages } from './i18n'
+import { parseJavaFailure } from './java-runtime'
 
 const navigation: { id: Page; label: string; icon: string }[] = [
 	{ id: 'home', label: messages.navigation.home, icon: 'home' },
@@ -238,7 +240,7 @@ const accountType = (account: Account) =>
 				: 'Offline'
 const errorMessage = (reason: unknown) =>
 	typeof reason === 'string'
-		? reason
+		? parseJavaFailure(reason)?.message || reason
 		: reason instanceof Error
 			? reason.message
 			: 'Не удалось выполнить действие. Попробуйте ещё раз.'
@@ -507,6 +509,17 @@ async function toggleAutostart() {
 		error.value = errorMessage(reason)
 	}
 }
+async function pickDefaultJava() {
+	try {
+		const runtime = await gameApi.pickJava()
+		if (runtime && draft.value) {
+			draft.value.java_path = runtime.path
+			notice.value = `Java ${runtime.major} · ${runtime.architecture} проверена`
+		}
+	} catch (reason) {
+		error.value = errorMessage(reason)
+	}
+}
 async function saveSettings() {
 	if (!draft.value) return
 	const previous = snapshot.value?.settings
@@ -571,7 +584,7 @@ onMounted(() => {
 				'Не удалось загрузить текст. Лицензия находится в файле LICENSE исходного репозитория.'
 		})
 	void Promise.all(
-		['/fonts/Manrope-OFL.txt', '/fonts/Unbounded-OFL.txt'].map((path) =>
+		['/fonts/Poppins-OFL.txt', '/fonts/Manrope-OFL.txt', '/fonts/Unbounded-OFL.txt'].map((path) =>
 			fetch(path).then((response) => response.text()),
 		),
 	)
@@ -625,6 +638,10 @@ onUnmounted(() => {
 				(account) => mutate('set_active', { uuid: account.uuid }, 'Активный аккаунт изменён')
 			"
 			@about="aboutDialog?.showModal()"
+		/>
+		<JavaRuntimeDialog
+			:operations="operations"
+			:channel="snapshot?.settings.release_channel || 'stable'"
 		/>
 		<main id="main-content" tabindex="-1" class="main-area">
 			<header class="topbar">
@@ -884,7 +901,12 @@ onUnmounted(() => {
 								сборки.</span
 							>
 						</p>
-						<span class="release-tag">СЕРВЕРНАЯ СБОРКА</span>
+						<img
+							class="seasonal-pumpkin"
+							src="/seasonal/autumn-pumpkin.webp"
+							alt=""
+							aria-hidden="true"
+						/><span class="release-tag">ОСЕНЬ В NCREATE</span>
 					</div>
 				</section>
 				<LibraryPage
@@ -1314,6 +1336,9 @@ onUnmounted(() => {
 									spellcheck="false"
 									placeholder="Автоматически после установки сборки"
 								/>
+								<button class="button secondary" @click="pickDefaultJava">
+									Выбрать Java вручную
+								</button>
 							</div>
 							<div class="setting-row stacked">
 								<label for="game-directory">Папка игры · будущая настройка</label
@@ -1558,7 +1583,7 @@ onUnmounted(() => {
 				<pre class="license-frame">{{ license || 'Загружаем лицензию…' }}</pre>
 			</details>
 			<details>
-				<summary>Лицензии шрифтов Manrope и Unbounded</summary>
+				<summary>Лицензии шрифтов Poppins, Manrope и Unbounded</summary>
 				<pre class="license-frame">{{ fontLicenses || 'Загружаем лицензии…' }}</pre>
 			</details>
 			<p class="legal-note">

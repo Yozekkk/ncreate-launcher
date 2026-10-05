@@ -1,4 +1,13 @@
-import { invoke } from '@tauri-apps/api/core'
+import { invoke as nativeInvoke } from '@tauri-apps/api/core'
+import { reportJavaError } from './java-runtime.ts'
+async function invoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+	try {
+		return await nativeInvoke<T>(command, args)
+	} catch (error) {
+		reportJavaError(error)
+		throw error
+	}
+}
 
 export type Loader = 'vanilla' | 'fabric' | 'forge' | 'neoforge' | 'quilt'
 export const loaderNames: Record<Loader, string> = {
@@ -163,7 +172,13 @@ export type UpdatePlan = {
 	download_bytes: number
 }
 
+export type JavaRuntime = { path: string; major: number; architecture: string }
 export const gameApi = {
+	pickJava: (instanceId: string | null = null) =>
+		invoke<JavaRuntime | null>('core_pick_java', { instanceId }),
+	selectJava: (instanceId: string, path: string) =>
+		invoke<JavaRuntime>('core_select_java', { instanceId, path }),
+	javaDownload: (major: number) => invoke<void>('core_java_download', { major }),
 	editions: (channel: 'stable' | 'beta') =>
 		invoke<EditionAvailability[]>('core_editions', { channel }),
 	installEdition: (editionId: string, channel: 'stable' | 'beta') =>
@@ -245,6 +260,8 @@ export function statusLabel(status: string): string {
 	)
 }
 export function displayError(reason: unknown): string {
+	const java = reportJavaError(reason)
+	if (java) return java.message
 	return typeof reason === 'string'
 		? reason
 		: reason instanceof Error
@@ -253,6 +270,8 @@ export function displayError(reason: unknown): string {
 }
 
 export function operationError(reason: string): string {
+	const java = reportJavaError(reason)
+	if (java) return java.message
 	if (/network request failed|request timed out|error sending request/i.test(reason))
 		return 'Не удалось загрузить файлы. Проверьте подключение к сети и повторите действие.'
 	if (/^(operation )?cancelled$/i.test(reason)) return 'Операция отменена.'

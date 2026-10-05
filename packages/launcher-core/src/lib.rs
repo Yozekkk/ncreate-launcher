@@ -3,6 +3,7 @@ mod content;
 mod download;
 mod editions;
 mod files;
+mod java;
 mod minecraft;
 mod models;
 mod packs;
@@ -14,6 +15,8 @@ use tokio::sync::Mutex;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
+	#[error("NCREATE_JAVA:{0}")]
+	Java(String),
 	#[error("{0}")]
 	Invalid(String),
 	#[error("operation cancelled")]
@@ -178,6 +181,7 @@ impl Engine {
 			mod_count: 0,
 			last_played: None,
 		};
+		self.validate_instance_java(&instance).await?;
 		self.save_instance(&instance).await?;
 		Ok(instance)
 	}
@@ -207,6 +211,7 @@ impl Engine {
 		instance.loader_version = request.loader_version;
 		instance.memory_mb = request.memory_mb;
 		instance.java_path = request.java_path;
+		self.validate_instance_java(&instance).await?;
 		self.save_instance(&instance).await?;
 		Ok(instance)
 	}

@@ -438,7 +438,24 @@ pub async fn core_launch(
 		xuid: None,
 		authlib_injector,
 	};
-	e.launch(&instance_id, identity).await.map_err(core_error)
+	let launch = e.launch(&instance_id, identity);
+	tokio::pin!(launch);
+	let mut tick = tokio::time::interval(std::time::Duration::from_millis(500));
+	loop {
+		tokio::select! {
+			result = &mut launch => {
+				for progress in e.jobs() {
+					let _ = app.emit_to("main", "core-progress", progress);
+				}
+				return result.map_err(core_error);
+			}
+			_ = tick.tick() => {
+				for progress in e.jobs() {
+					let _ = app.emit_to("main", "core-progress", progress);
+				}
+			}
+		}
+	}
 }
 #[tauri::command]
 pub async fn core_stop(
@@ -766,4 +783,73 @@ pub async fn core_resume_edition_install(
 				.map(|_| ())
 		},
 	))
+}
+
+#[tauri::command]
+pub async fn core_pick_java(
+	window: tauri::WebviewWindow,
+	app: tauri::AppHandle,
+	state: tauri::State<'_, AppState>,
+	instance_id: Option<String>,
+) -> Result<Option<ncreate_launcher_core::JavaRuntime>> {
+	let e = engine(&window, &state).await?;
+	let path = tauri::async_runtime::spawn_blocking(move || {
+		let dialog = app
+			.dialog()
+			.file()
+			.set_title("Выберите bin/java или bin/java.exe");
+		#[cfg(windows)]
+		let dialog = dialog.add_filter("Java executable", &["exe"]);
+		dialog.blocking_pick_file().map(|file| file.into_path())
+	})
+	.await
+	.map_err(|_| "Не удалось открыть выбор Java".to_string())?
+	.transpose()
+	.map_err(|_| "Выберите локальный executable Java".to_string())?;
+	let Some(path) = path else {
+		return Ok(None);
+	};
+	let path = path.to_string_lossy();
+	e.validate_java(&path, instance_id.as_deref())
+		.await
+		.map(Some)
+		.map_err(core_error)
+}
+#[tauri::command]
+pub async fn core_select_java(
+	window: tauri::WebviewWindow,
+	state: tauri::State<'_, AppState>,
+	instance_id: String,
+	path: String,
+) -> Result<ncreate_launcher_core::JavaRuntime> {
+	engine(&window, &state)
+		.await?
+		.select_java(&instance_id, &path)
+		.await
+		.map_err(core_error)
+}
+#[tauri::command]
+pub async fn core_java_download(
+	window: tauri::WebviewWindow,
+	app: tauri::AppHandle,
+	major: u32,
+) -> Result<()> {
+	local(&window)?;
+	if !(8..=99).contains(&major) {
+		return Err("Некорректная версия Java".into());
+	}
+	let os = if cfg!(windows) { "windows" } else { "linux" };
+	let arch = if cfg!(target_arch = "aarch64") {
+		"aarch64"
+	} else {
+		"x64"
+	};
+	app.opener()
+		.open_url(
+			format!(
+				"https://adoptium.net/temurin/releases/?version={major}&os={os}&arch={arch}&package=jdk"
+			),
+			None::<&str>,
+		)
+		.map_err(|_| "Не удалось открыть страницу Java".into())
 }

@@ -107,6 +107,9 @@ where
 #[serde(rename_all = "camelCase")]
 /// A partial version returned by fabric meta
 pub struct PartialVersionInfo {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	/// Explicit loader Java requirement, inherited from vanilla when absent.
+	pub java_version: Option<crate::minecraft::JavaVersion>,
     /// The version ID of the version
     pub id: String,
     /// The version ID this partial version inherits from
@@ -219,7 +222,7 @@ pub fn merge_partial_version(
         assets: merge.assets,
         downloads: merge.downloads,
         id: partial.id.replace(DUMMY_REPLACE_STRING, &merge_id),
-        java_version: merge.java_version,
+        java_version: partial.java_version.or(merge.java_version),
         libraries: libraries
             .into_iter()
             .chain(partial.libraries)

@@ -51,7 +51,10 @@ impl Operation {
 			notified.await;
 		}
 	}
-	async fn wait<T>(&self, future: impl std::future::Future<Output = Result<T>>) -> Result<T> {
+	pub(crate) async fn wait<T>(
+		&self,
+		future: impl std::future::Future<Output = Result<T>>,
+	) -> Result<T> {
 		tokio::select! { biased; _ = self.cancelled() => Err(Error::Cancelled), result = future => result }
 	}
 	pub fn progress(&self, phase: &str, completed: u64, total: u64, message: &str) {
