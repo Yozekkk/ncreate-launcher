@@ -1,3 +1,31 @@
+@font-face {
+	font-family: Poppins;
+	src: url('/fonts/poppins-regular.woff2') format('woff2');
+	font-weight: 400;
+	font-style: normal;
+	font-display: swap;
+}
+@font-face {
+	font-family: Poppins;
+	src: url('/fonts/poppins-medium.woff2') format('woff2');
+	font-weight: 500;
+	font-style: normal;
+	font-display: swap;
+}
+@font-face {
+	font-family: Poppins;
+	src: url('/fonts/poppins-semibold.woff2') format('woff2');
+	font-weight: 600;
+	font-style: normal;
+	font-display: swap;
+}
+@font-face {
+	font-family: Poppins;
+	src: url('/fonts/poppins-bold.woff2') format('woff2');
+	font-weight: 700;
+	font-style: normal;
+	font-display: swap;
+}
 :root {
 	--page: #11171c;
 	--elevated: #151c22;
@@ -12,7 +40,7 @@
 	--amber: #ffad75;
 	color: var(--foreground);
 	background: var(--page);
-	font-family: Manrope, system-ui, sans-serif;
+	font-family: Poppins, Manrope, system-ui, sans-serif;
 	font-size: 14px;
 }
 body {
@@ -766,4 +794,243 @@ dialog::backdrop {
 		flex-wrap: wrap;
 		gap: 12px;
 	}
+}
+.is-home .main-area {
+	background-image:
+		linear-gradient(90deg, #0d131bee 0%, #0d131bc4 38%, #0d131b18 80%),
+		linear-gradient(0deg, #11171c 0%, transparent 40%), url('/seasonal/autumn-world.webp');
+	background-size: cover;
+	background-position:
+		center,
+		center,
+		68% center;
+}
+.is-home .official-pack-description,
+.is-home .official-pack-status {
+	text-shadow: 0 2px 8px #000;
+}
+.is-home .official-pack-facts dt,
+.is-home .official-pack-size,
+.is-home .edition-label,
+.is-home .home-footer p,
+.is-home .home-footer p span {
+	color: #b1b8c6;
+}
+.seasonal-pumpkin {
+	width: 72px;
+	height: 60px;
+	object-fit: contain;
+	pointer-events: none;
+	margin-left: auto;
+}
+.is-home .release-tag {
+	margin-left: 0;
+}
+.java-diagnostic {
+	font-size: 13px;
+	line-height: 1.6;
+	background: var(--control);
+	padding: 12px;
+	border-radius: 8px;
+	overflow-wrap: anywhere;
+}
+.java-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin: 24px 0 16px;
+}
+.instance-card {
+	padding: 0;
+	overflow: visible;
+}
+.instance-card-link {
+	display: flex;
+	flex-direction: column;
+	position: relative;
+	min-height: 150px;
+	padding: 16px;
+	border-radius: 16px;
+	background: linear-gradient(135deg, #222c35, #151c22);
+}
+.instance-cover {
+	position: absolute;
+	top: 12px;
+	right: 12px;
+	width: 44px;
+	height: 44px;
+	min-height: 0;
+	padding: 0;
+	background: transparent;
+	border-radius: 8px;
+}
+.instance-cover > img {
+	width: 40px;
+	height: 40px;
+	object-fit: contain;
+	border-radius: 8px;
+}
+.instance-cover > svg {
+	width: 32px;
+	height: 32px;
+}
+.instance-cover .loader-chip {
+	position: absolute;
+	top: 52px;
+	bottom: auto;
+	left: auto;
+	right: 0;
+	font-size: 10px;
+	padding: 2px 5px;
+}
+.instance-card-link > .official-library-badge {
+	max-width: calc(100% - 48px);
+	align-self: flex-start;
+	font-size: 9px;
+	padding: 4px 6px;
+	margin: 0 0 10px;
+}
+.instance-card-link h2 {
+	font-size: 20px;
+	line-height: 1.3;
+	margin: 0 50px 8px 0;
+	overflow-wrap: anywhere;
+}
+.instance-card-link p {
+	font-size: 11px;
+	margin: 0 40px 6px 0;
+}
+.instance-card-link small {
+	font-size: 10px;
+	margin-top: auto;
+}
+.instance-card-bottom {
+	padding: 12px;
+	border-top: 1px solid var(--line);
+	gap: 8px;
+}
+.instance-state {
+	font-size: 11px;
+}
+.instance-card-bottom .button {
+	font-size: 12px;
+	padding: 4px 8px;
+}
+.instance-menu > div {
+	background: var(--elevated);
+	border: 1px solid var(--line);
+	border-radius: 8px;
+	box-shadow: 0 12px 32px #0006;
+	z-index: 8;
+}
+.instance-menu button:hover,
+.instance-menu a:hover {
+	background: var(--control-hover);
+}
+.account-grid {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+.account-card {
+	display: grid;
+	grid-template-columns: 44px minmax(120px, 1fr) minmax(150px, 1fr);
+	grid-template-rows: auto auto;
+	column-gap: 16px;
+	row-gap: 4px;
+	padding: 16px;
+	text-align: left;
+}
+.account-portrait {
+	grid-column: 1;
+	grid-row: 1 / 3;
+	margin: 0;
+	align-self: center;
+}
+.account-portrait img {
+	width: 40px;
+	height: 40px;
+	border-radius: 6px;
+}
+.account-portrait .pixel-avatar {
+	transform: scale(0.55);
+	transform-origin: left center;
+}
+.account-card > strong {
+	grid-column: 2;
+	grid-row: 1;
+	margin: 0;
+	font-size: 15px;
+}
+.account-uuid {
+	grid-column: 2;
+	grid-row: 2;
+	font-size: 9px;
+	margin: 0;
+	overflow-wrap: anywhere;
+}
+.account-card-top {
+	grid-column: 3;
+	grid-row: 1;
+	justify-content: flex-end;
+	gap: 12px;
+}
+.account-card-bottom {
+	grid-column: 3;
+	grid-row: 2;
+	margin: 0;
+	padding: 0;
+	border: none;
+	justify-content: flex-end;
+	gap: 12px;
+}
+.account-card {
+	min-height: 80px;
+	align-items: center;
+}
+.search-filters {
+	background: var(--elevated);
+	border-color: var(--line);
+	padding: 12px;
+	border-radius: 10px;
+	gap: 12px;
+}
+.search-filters select,
+.modal select {
+	background: var(--control);
+	color: var(--foreground);
+	border: 1px solid var(--line);
+	border-radius: 8px;
+	font-size: 13px;
+	padding: 8px 12px;
+	min-height: 36px;
+}
+.search-filters label {
+	color: var(--muted);
+}
+.page {
+	animation: page-enter 200ms ease-out;
+}
+@keyframes page-enter {
+	from {
+		opacity: 0;
+		transform: translateY(5px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+.search-filters select,
+.modal select {
+	appearance: none;
+	background-image:
+		linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+		linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+	background-position:
+		calc(100% - 17px) 50%,
+		calc(100% - 12px) 50%;
+	background-size: 5px 5px;
+	background-repeat: no-repeat;
+	padding-right: 32px;
 }
