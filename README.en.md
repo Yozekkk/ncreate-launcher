@@ -22,10 +22,15 @@
   </p>
 </div>
 
+<p align="center">
+  <img src="apps/app-frontend/public/seasonal/autumn-world.webp" alt="NCreate autumn world with Minecraft characters beneath red trees" width="900">
+  <br><sub>The 1.0.0 autumn artwork was prepared from NCreate team materials.</sub>
+</p>
+
 ## Download
 
 > [!IMPORTANT]
-> **NCreate Launcher 1.0.0 Stable** is the first stable release: a rebuilt interface, autumn artwork and validated automatic Java. Direct upgrade from 0.6.0. These sources are prepared for release; the tag and GitHub Release are not published yet. Package links below become available after publication.
+> **NCreate Launcher 1.0.0 Stable** is the first stable release, with a rebuilt interface, autumn artwork and validated automatic Java. It upgrades directly from 0.6.0.
 
 | Platform                                                                    | v1.0.0 Stable file                   | Download                                                                                                                          |
 | :-------------------------------------------------------------------------- | :--------------------------------- | :-------------------------------------------------------------------------------------------------------------------------------- |
@@ -94,6 +99,10 @@ Home offers one [official NCreate Server pack](https://github.com/Yozekkk/ncreat
 
 The official Minecraft 1.21.1 / NeoForge pack requires Java 21. Other versions use their own metadata requirements. A verified Mojang runtime is installed automatically when a compatible local Java is unavailable. Manual selection is available in Minecraft/Java settings, instance settings and the recovery dialog. Existing data is preserved. Users of v0.5.0 need a one-time manual launcher installation.
 
+## Launcher updates
+
+Settings offers Stable and Beta channels. The launcher checks signed NCreate releases on GitHub and verifies version, size, SHA-256 and signature before installation. Stable does not receive prerelease Beta versions. The update mechanism and signed packages passed checks; installing a future release through the updater requires a newer signed version to be published.
+
 ## Installation
 
 Choose the v1.0.0 package for your system in the table above and install it as follows.
@@ -154,7 +163,7 @@ After installation:
 - Windows 10/11 x64 or Linux x64; Windows GUI behavior still needs a direct test.
 - Free space for Minecraft and your selected mods; the amount depends on the game version and content.
 - Internet access for the first game, loader, and content downloads.
-- A Java version compatible with your Minecraft version; NCreate Server requires Java 21. The launcher checks installed Java and accepts a custom executable path; managed Java downloads are not implemented yet.
+- A Java version compatible with your Minecraft version; NCreate Server requires Java 21. If no suitable Java is installed, the launcher automatically prepares a verified Mojang runtime. You can also choose your own executable.
 
 ## Privacy
 
