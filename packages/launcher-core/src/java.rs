@@ -703,7 +703,9 @@ mod tests {
 	#[tokio::test]
 	#[ignore = "real Mojang downloads and executable validation on this host"]
 	async fn real_managed_generations() {
-		let root = std::env::temp_dir().join("ncreate-stable-java-verification");
+		let root = std::env::var_os("NCREATE_TEST_ROOT")
+			.map(PathBuf::from)
+			.unwrap_or_else(|| std::env::temp_dir().join("ncreate-stable-java-verification"));
 		let e = engine(root).await;
 		for required in [8, 16, 17, 21] {
 			let op = e.begin("java_runtime_test", None);
@@ -773,7 +775,9 @@ mod live_pipeline_tests {
 	#[tokio::test]
 	#[ignore = "downloads real Minecraft and official NCreate pack, opens game windows"]
 	async fn real_minecraft_and_official_pack() {
-		let root = std::env::temp_dir().join("ncreate-stable-java-verification");
+		let root = std::env::var_os("NCREATE_TEST_ROOT")
+			.map(PathBuf::from)
+			.unwrap_or_else(|| std::env::temp_dir().join("ncreate-stable-java-verification"));
 		tokio::fs::create_dir_all(&root).await.unwrap();
 		let options = sqlx::sqlite::SqliteConnectOptions::new()
 			.filename(root.join("verification.sqlite"))

@@ -797,7 +797,8 @@ pub async fn core_pick_java(
 		let dialog = app
 			.dialog()
 			.file()
-			.set_title("Выберите bin/java или bin/java.exe");
+			.set_title("Выберите bin/java или bin/java.exe")
+			.set_parent(&window);
 		#[cfg(windows)]
 		let dialog = dialog.add_filter("Java executable", &["exe"]);
 		dialog.blocking_pick_file().map(|file| file.into_path())

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { nextTick, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
 import { javaFailure } from '../java-runtime'
 import { gameApi, displayError } from '../game-api'
@@ -55,8 +55,10 @@ async function retry() {
 			await props.operations.track(await gameApi.resumeEditionInstall(instance.id, props.channel))
 		else await props.operations.track(await gameApi.installGame(instance.id))
 	} catch (reason) {
-		error.value = displayError(reason)
+		const message = displayError(reason)
 		if (!javaFailure.value) javaFailure.value = failure
+		await nextTick()
+		error.value = message
 		dialog.value?.showModal()
 	} finally {
 		busy.value = false
