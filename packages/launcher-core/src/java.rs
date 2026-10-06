@@ -752,6 +752,35 @@ mod tests {
 			.unwrap();
 		assert_eq!(runtime.major, 21);
 		assert!(validate_major(runtime, 17, "1.18").is_err());
+		let root = tempfile::tempdir().unwrap();
+		let e = engine(root.path().to_owned()).await;
+		assert!(
+			e.java_runtimes()
+				.await
+				.unwrap()
+				.iter()
+				.any(|runtime| runtime.major == 21)
+		);
+		#[cfg(windows)]
+		{
+			let copied = root.path().join("Program Files/Eclipse Adoptium/jdk 21");
+			for entry in walkdir::WalkDir::new(&home) {
+				let entry = entry.unwrap();
+				let destination = copied.join(entry.path().strip_prefix(&home).unwrap());
+				if entry.file_type().is_dir() {
+					std::fs::create_dir_all(destination).unwrap();
+				} else {
+					std::fs::copy(entry.path(), destination).unwrap();
+				}
+			}
+			assert_eq!(
+				check_java(&copied.join("bin/java.exe"))
+					.await
+					.unwrap()
+					.major,
+				21
+			);
+		}
 	}
 
 	#[tokio::test]
