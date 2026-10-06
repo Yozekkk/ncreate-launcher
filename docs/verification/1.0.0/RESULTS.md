@@ -7,7 +7,10 @@ records the OneLauncher mapping and inspection of all seasonal originals.
 
 ## Local release gates
 
-All commands below completed with exit code 0 on commit `cbe0624`:
+All commands below completed with exit code 0. The dependency, frontend and
+Rust checks were repeated on `cbe0624`. The local Linux package was built
+before its Windows-test-only commits; CI rebuilt the same production sources
+from `cbe0624` on both platforms.
 
 | Command | Result |
 | --- | --- |
