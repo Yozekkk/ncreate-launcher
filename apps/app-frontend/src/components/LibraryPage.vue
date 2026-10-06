@@ -311,6 +311,15 @@ function showManage(instance: Instance, action: 'rename' | 'duplicate' | 'delete
 	error.value = ''
 	manageDialog.value?.showModal()
 }
+async function pickManagedJava() {
+	if (!managed.value) return
+	try {
+		const runtime = await gameApi.pickJava(managed.value.id)
+		if (runtime) manageJava.value = runtime.path
+	} catch (reason) {
+		error.value = displayError(reason)
+	}
+}
 async function manageInstance() {
 	const instance = managed.value
 	if (!instance) return
@@ -809,11 +818,15 @@ onUnmounted(() => {
 			<article v-for="instance in libraryInstances" :key="instance.id" class="instance-card">
 				<a :href="`#/library/${instance.id}`" class="instance-card-link"
 					><div class="instance-cover">
-						<img v-if="instance.icon" :src="instance.icon" width="80" height="80" alt="" /><AppIcon
-							v-else
-							name="game"
-							:size="45"
-						/><span class="loader-chip">{{ loaderNames[instance.loader] }}</span>
+						<img
+							v-if="instance.icon || instance.kind === 'official'"
+							:src="instance.icon || '/brand/logo.webp'"
+							width="80"
+							height="80"
+							alt=""
+						/><AppIcon v-else name="game" :size="45" /><span class="loader-chip">{{
+							loaderNames[instance.loader]
+						}}</span>
 					</div>
 					<span v-if="instance.kind === 'official'" class="official-library-badge"
 						><AppIcon name="check" :size="12" />Официальная NCreate</span
@@ -1105,6 +1118,9 @@ onUnmounted(() => {
 						placeholder="Автоматический выбор установленной Java"
 						:disabled="busy"
 					/>
+					<button type="button" class="button secondary" @click="pickManagedJava">
+						Выбрать Java вручную
+					</button>
 					<p class="field-help">
 						Укажи путь к java, например /usr/lib/jvm/java-21-openjdk/bin/java. Лаунчер проверит
 						версию перед установкой и запуском.

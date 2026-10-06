@@ -70,7 +70,11 @@ impl Engine {
 		op.finish(&result);
 		result
 	}
-	async fn version_info(&self, instance: &Instance, op: &Operation) -> Result<VersionInfo> {
+	pub(crate) async fn version_info(
+		&self,
+		instance: &Instance,
+		op: &Operation,
+	) -> Result<VersionInfo> {
 		let manifest: VersionManifest = self
 			.downloads
 			.json(daedalus::minecraft::VERSION_MANIFEST_URL, op)
@@ -228,71 +232,6 @@ impl Engine {
 		partial.data = Some(data);
 		Ok(partial)
 	}
-	pub async fn java_runtimes(&self) -> Result<Vec<JavaRuntime>> {
-		let mut candidates = vec![PathBuf::from(if cfg!(windows) {
-			"java.exe"
-		} else {
-			"java"
-		})];
-		if let Some(home) = std::env::var_os("JAVA_HOME") {
-			candidates.push(PathBuf::from(home).join("bin").join(if cfg!(windows) {
-				"java.exe"
-			} else {
-				"java"
-			}));
-		}
-		let roots = if cfg!(windows) {
-			vec![
-				PathBuf::from("C:\\Program Files\\Java"),
-				PathBuf::from("C:\\Program Files\\Eclipse Adoptium"),
-			]
-		} else {
-			vec![PathBuf::from("/usr/lib/jvm"), self.root.join("java")]
-		};
-		for root in roots {
-			if let Ok(mut entries) = tokio::fs::read_dir(root).await {
-				while let Some(entry) = entries.next_entry().await? {
-					candidates.push(entry.path().join("bin").join(if cfg!(windows) {
-						"java.exe"
-					} else {
-						"java"
-					}));
-				}
-			}
-		}
-		let mut runtimes = Vec::new();
-		for path in candidates {
-			if let Ok(runtime) = check_java(&path).await
-				&& !runtimes
-					.iter()
-					.any(|r: &JavaRuntime| r.path == runtime.path)
-			{
-				runtimes.push(runtime);
-			}
-		}
-		Ok(runtimes)
-	}
-	async fn choose_java(&self, instance: &Instance, required: u32) -> Result<JavaRuntime> {
-		if let Some(path) = &instance.java_path {
-			let runtime = check_java(Path::new(path)).await?;
-			if runtime.major != required {
-				return Err(Error::Invalid(format!(
-					"this version needs Java {required}; selected runtime is Java {}",
-					runtime.major
-				)));
-			}
-			return Ok(runtime);
-		}
-		self.java_runtimes()
-			.await?
-			.into_iter()
-			.find(|r| r.major == required)
-			.ok_or_else(|| {
-				Error::Invalid(format!(
-					"install Java {required} or choose its executable in the instance settings"
-				))
-			})
-	}
 	pub async fn install_game(&self, instance_id: &str, op: &Operation) -> Result<Instance> {
 		let _guard = self.mutation.lock().await;
 		self.ensure_stopped(instance_id).await?;
@@ -310,7 +249,7 @@ impl Engine {
 			|| info.java_version.as_ref().map_or(8, |j| j.major_version),
 			|m| m.java.major,
 		);
-		let java = self.choose_java(&instance, required).await?;
+		let java = self.choose_java(&instance, required, op).await?;
 		let runtime = self.root.join("minecraft");
 		let libraries = runtime.join("libraries");
 		let assets = runtime.join("assets");
@@ -550,7 +489,6 @@ impl Engine {
 		tokio::fs::write(&temporary, serde_json::to_vec(&info)?).await?;
 		tokio::fs::rename(temporary, path).await?;
 		instance.status = "ready".into();
-		instance.java_path = Some(java.path);
 		self.save_instance(&instance).await?;
 		Ok(instance)
 	}
@@ -704,12 +642,16 @@ impl Engine {
 			));
 		}
 
-		let java = self.choose_java(&instance, java_major).await?;
+		let java_op = self.begin("java", Some(instance_id));
+		let resolved = self.choose_java(&instance, java_major, &java_op).await;
+		java_op.finish(&resolved);
+		let java = resolved?;
 		let runtime = self.root.join("minecraft");
 		let libraries = runtime.join("libraries");
 		let natives = self
 			.instance_path(instance_id)?
 			.join(".ncreate-runtime/natives");
+		let (natives, native_alias) = native_launch_path(natives)?;
 		let mut classpath = Vec::new();
 		for lib in &info.libraries {
 			if !lib.include_in_classpath
@@ -866,7 +808,13 @@ impl Engine {
 		if let Some(stderr) = child.stderr.take() {
 			capture_log(stderr, log_path.clone(), identity.access_token.clone());
 		}
-		self.running.lock().await.insert(instance_id.into(), child);
+		self.running.lock().await.insert(
+			instance_id.into(),
+			crate::GameProcess {
+				child,
+				native_alias,
+			},
+		);
 		instance.last_played = Some(chrono::Utc::now().timestamp());
 		self.save_instance(&instance).await?;
 		Ok(RunningGame {
@@ -934,14 +882,31 @@ impl Engine {
 	}
 	pub async fn stop(&self, instance_id: &str) -> Result<()> {
 		if let Some(mut child) = self.running.lock().await.remove(instance_id) {
-			child.kill().await?;
-			child.wait().await?;
+			child.child.kill().await?;
+			child.child.wait().await?;
 			Ok(())
 		} else {
 			Err(Error::Invalid("this instance is not running".into()))
 		}
 	}
 }
+fn native_launch_path(path: PathBuf) -> Result<(PathBuf, Option<tempfile::TempDir>)> {
+	// LWJGL 3.2.x encodes Linux dlopen paths as ASCII. Keep a private ASCII alias
+	// alive for the child without moving an instance or changing its user files.
+	#[cfg(target_os = "linux")]
+	if !path.as_os_str().is_ascii() {
+		use std::os::unix::fs::PermissionsExt;
+		let directory = tempfile::Builder::new()
+			.prefix("ncreate-natives-")
+			.permissions(std::fs::Permissions::from_mode(0o700))
+			.tempdir_in("/tmp")?;
+		let alias = directory.path().join("natives");
+		std::os::unix::fs::symlink(std::fs::canonicalize(&path)?, &alias)?;
+		return Ok((alias, Some(directory)));
+	}
+	Ok((path, None))
+}
+
 fn library_base<'a>(base: &'a str, coordinate: &str, loader: Loader) -> &'a str {
 	if base != "https://launcher-meta.modrinth.com/maven/" {
 		return base;
@@ -981,45 +946,6 @@ fn loader_matches(
 }
 fn separator() -> &'static str {
 	if cfg!(windows) { ";" } else { ":" }
-}
-async fn check_java(path: &Path) -> Result<JavaRuntime> {
-	let output = tokio::time::timeout(
-		std::time::Duration::from_secs(10),
-		tokio::process::Command::new(path)
-			.arg("-XshowSettings:properties")
-			.arg("-version")
-			.kill_on_drop(true)
-			.output(),
-	)
-	.await
-	.map_err(|_| Error::Invalid("Java version probe timed out".into()))??;
-	if !output.status.success() {
-		return Err(Error::Invalid("Java version probe failed".into()));
-	}
-	let text = String::from_utf8_lossy(&output.stderr);
-	let version = text
-		.lines()
-		.find_map(|l| l.trim().strip_prefix("java.version = "))
-		.or_else(|| text.split('"').nth(1))
-		.ok_or_else(|| Error::Invalid("Java version could not be parsed".into()))?;
-	let parts: Vec<&str> = version.split('.').collect();
-	let major = if parts.first() == Some(&"1") {
-		parts.get(1)
-	} else {
-		parts.first()
-	}
-	.and_then(|s| s.parse().ok())
-	.ok_or_else(|| Error::Invalid("Java version could not be parsed".into()))?;
-	let architecture = text
-		.lines()
-		.find_map(|l| l.trim().strip_prefix("os.arch = "))
-		.unwrap_or("amd64")
-		.into();
-	Ok(JavaRuntime {
-		path: path.to_string_lossy().into(),
-		major,
-		architecture,
-	})
 }
 fn rules_allow(rules: &[Rule], arch: &str) -> bool {
 	let mut allow = false;
@@ -1219,6 +1145,32 @@ impl Drop for SecretMap {
 
 #[cfg(test)]
 mod tests {
+	#[cfg(target_os = "linux")]
+	#[test]
+	fn unicode_native_directory_has_private_ascii_alias_until_cleanup() {
+		use std::os::unix::fs::PermissionsExt;
+		let root = tempfile::tempdir().unwrap();
+		let original = root.path().join("Кириллица with spaces");
+		std::fs::create_dir(&original).unwrap();
+		std::fs::write(original.join("libtest.so"), b"verified native").unwrap();
+		let (alias, guard) = super::native_launch_path(original.clone()).unwrap();
+		assert!(alias.as_os_str().is_ascii());
+		assert_eq!(
+			std::fs::read(alias.join("libtest.so")).unwrap(),
+			b"verified native"
+		);
+		assert_eq!(
+			std::fs::metadata(alias.parent().unwrap())
+				.unwrap()
+				.permissions()
+				.mode() & 0o077,
+			0
+		);
+		drop(guard);
+		assert!(!alias.exists());
+		assert!(original.join("libtest.so").exists());
+	}
+
 	use super::*;
 	#[test]
 	fn neoforge_does_not_load_the_vanilla_jar_as_a_second_minecraft_module() {

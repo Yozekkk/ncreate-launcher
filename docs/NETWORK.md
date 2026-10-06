@@ -176,3 +176,17 @@ Treat attribution and protocol audience strings separately from executable
 network destinations. Runtime proof additionally requires desktop diagnostics;
 a clean source scan is not a packet capture. Record any remaining production
 destination and its reason before declaring this audit complete.
+
+## Managed Java (1.0.0)
+
+Missing runtimes use Mojang's HTTPS Java runtime index at
+`piston-meta.mojang.com/v1/products/java-runtime/2ec0cc96c44e5a76b9c8b7c39df7210883d12871/all.json`.
+Manifest and raw file downloads are restricted to Mojang hosts
+(`piston-meta.mojang.com`, `piston-data.mojang.com`, `launcher.mojang.com`), with
+provider-supplied size and SHA-1 checks. Files are staged inside NCreate's own
+`java/` directory, validated and atomically renamed. No telemetry is added.
+
+The recovery action opens the official browser page
+`https://adoptium.net/temurin/releases/?version=MAJOR&os=OS&arch=ARCH&package=jdk`.
+It does not execute a downloaded installer. Discovery/provisioning has a shared
+120-second deadline; executable probes have a five-second deadline.

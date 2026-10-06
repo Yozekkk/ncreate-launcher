@@ -187,6 +187,14 @@ async fn save_settings(
 	settings: Settings,
 ) -> Result<Snapshot> {
 	local(&window)?;
+	if !settings.java_path.trim().is_empty() {
+		state
+			.engine()
+			.await?
+			.validate_java(&settings.java_path, None)
+			.await
+			.map_err(core_commands::core_error)?;
+	}
 	state.store().await?.settings(settings).await
 }
 #[tauri::command]
@@ -411,6 +419,9 @@ fn run() -> std::result::Result<(), Box<dyn std::error::Error>> {
 		core_commands::core_categories,
 		core_commands::core_open_folder,
 		core_commands::pick_instance_icon,
+		core_commands::core_pick_java,
+		core_commands::core_select_java,
+		core_commands::core_java_download,
 		core_commands::pick_import_pack,
 		core_commands::core_import_pack,
 		core_commands::pick_export_pack,
@@ -466,6 +477,9 @@ fn run() -> std::result::Result<(), Box<dyn std::error::Error>> {
 		core_commands::core_categories,
 		core_commands::core_open_folder,
 		core_commands::pick_instance_icon,
+		core_commands::core_pick_java,
+		core_commands::core_select_java,
+		core_commands::core_java_download,
 		core_commands::pick_import_pack,
 		core_commands::core_import_pack,
 		core_commands::pick_export_pack,

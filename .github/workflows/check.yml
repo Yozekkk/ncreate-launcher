@@ -61,6 +61,12 @@ jobs:
         run: cargo clippy --locked -p ncreate-launcher -p ncreate-app-lib -p ncreate-launcher-core --all-targets --no-deps -- -D warnings
       - name: Rust unit and deterministic integration tests
         run: cargo test --locked -p ncreate-launcher -p ncreate-app-lib -p ncreate-launcher-core
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Validate real platform Java executable
+        run: cargo test --locked -p ncreate-launcher-core ci_installed_java -- --ignored
       - name: Native and network boundary audit
         run: node scripts/check-stage2-boundary.mjs
       - name: Build desktop installers

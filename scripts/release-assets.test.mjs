@@ -112,3 +112,12 @@ test('stable and beta channels are classified from release title or prerelease t
 	assert.equal(releaseChannel('v0.6.0-beta.1', 'NCreate Launcher v0.6.0'), 'beta')
 	assert.throws(() => releaseNames('v0.6.0/../secret'), /Invalid release tag/)
 })
+
+test('1.0.0 release notes classify as Stable and package names omit prerelease labels', () => {
+	for (const language of ['', '.en']) {
+		const notes = fs.readFileSync(new URL(`../docs/releases/v1.0.0${language}.md`, import.meta.url), 'utf8')
+		const heading = /^# (.+)$/m.exec(notes)[1]
+		assert.equal(releaseChannel('v1.0.0', heading), 'stable')
+	}
+	assert.equal(releaseNames('v1.0.0').windows, 'NCreate-Launcher-Setup-1.0.0.exe')
+})
