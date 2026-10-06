@@ -1034,3 +1034,23 @@ dialog::backdrop {
 	background-repeat: no-repeat;
 	padding-right: 32px;
 }
+.empty-state h1,
+.empty-state h2 {
+	color: var(--foreground);
+}
+.library-empty {
+	min-height: 280px;
+	padding: 28px 20px;
+}
+.library-empty-art {
+	width: 56px;
+	height: 56px;
+	border-radius: 12px;
+	border-color: var(--line);
+	background: var(--control);
+	transform: none;
+	margin-bottom: 8px;
+}
+.library-empty h2 {
+	margin-top: 12px;
+}

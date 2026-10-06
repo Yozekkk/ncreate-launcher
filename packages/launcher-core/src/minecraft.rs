@@ -651,6 +651,7 @@ impl Engine {
 		let natives = self
 			.instance_path(instance_id)?
 			.join(".ncreate-runtime/natives");
+		let (natives, native_alias) = native_launch_path(natives)?;
 		let mut classpath = Vec::new();
 		for lib in &info.libraries {
 			if !lib.include_in_classpath
@@ -807,7 +808,13 @@ impl Engine {
 		if let Some(stderr) = child.stderr.take() {
 			capture_log(stderr, log_path.clone(), identity.access_token.clone());
 		}
-		self.running.lock().await.insert(instance_id.into(), child);
+		self.running.lock().await.insert(
+			instance_id.into(),
+			crate::GameProcess {
+				child,
+				native_alias,
+			},
+		);
 		instance.last_played = Some(chrono::Utc::now().timestamp());
 		self.save_instance(&instance).await?;
 		Ok(RunningGame {
@@ -875,14 +882,31 @@ impl Engine {
 	}
 	pub async fn stop(&self, instance_id: &str) -> Result<()> {
 		if let Some(mut child) = self.running.lock().await.remove(instance_id) {
-			child.kill().await?;
-			child.wait().await?;
+			child.child.kill().await?;
+			child.child.wait().await?;
 			Ok(())
 		} else {
 			Err(Error::Invalid("this instance is not running".into()))
 		}
 	}
 }
+fn native_launch_path(path: PathBuf) -> Result<(PathBuf, Option<tempfile::TempDir>)> {
+	// LWJGL 3.2.x encodes Linux dlopen paths as ASCII. Keep a private ASCII alias
+	// alive for the child without moving an instance or changing its user files.
+	#[cfg(target_os = "linux")]
+	if !path.as_os_str().is_ascii() {
+		use std::os::unix::fs::PermissionsExt;
+		let directory = tempfile::Builder::new()
+			.prefix("ncreate-natives-")
+			.permissions(std::fs::Permissions::from_mode(0o700))
+			.tempdir_in("/tmp")?;
+		let alias = directory.path().join("natives");
+		std::os::unix::fs::symlink(std::fs::canonicalize(&path)?, &alias)?;
+		return Ok((alias, Some(directory)));
+	}
+	Ok((path, None))
+}
+
 fn library_base<'a>(base: &'a str, coordinate: &str, loader: Loader) -> &'a str {
 	if base != "https://launcher-meta.modrinth.com/maven/" {
 		return base;
@@ -1121,6 +1145,32 @@ impl Drop for SecretMap {
 
 #[cfg(test)]
 mod tests {
+	#[cfg(target_os = "linux")]
+	#[test]
+	fn unicode_native_directory_has_private_ascii_alias_until_cleanup() {
+		use std::os::unix::fs::PermissionsExt;
+		let root = tempfile::tempdir().unwrap();
+		let original = root.path().join("Кириллица with spaces");
+		std::fs::create_dir(&original).unwrap();
+		std::fs::write(original.join("libtest.so"), b"verified native").unwrap();
+		let (alias, guard) = super::native_launch_path(original.clone()).unwrap();
+		assert!(alias.as_os_str().is_ascii());
+		assert_eq!(
+			std::fs::read(alias.join("libtest.so")).unwrap(),
+			b"verified native"
+		);
+		assert_eq!(
+			std::fs::metadata(alias.parent().unwrap())
+				.unwrap()
+				.permissions()
+				.mode() & 0o077,
+			0
+		);
+		drop(guard);
+		assert!(!alias.exists());
+		assert!(original.join("libtest.so").exists());
+	}
+
 	use super::*;
 	#[test]
 	fn neoforge_does_not_load_the_vanilla_jar_as_a_second_minecraft_module() {

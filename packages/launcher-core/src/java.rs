@@ -678,6 +678,60 @@ mod tests {
 			assert!(!root.path().join("escape").exists());
 		}
 	}
+	#[cfg(unix)]
+	#[tokio::test]
+	async fn manual_selection_validates_before_persisting() {
+		use std::os::unix::fs::PermissionsExt;
+		let root = tempfile::tempdir().unwrap();
+		let e = engine(root.path().to_owned()).await;
+		let mut instance = e
+			.create_instance(crate::CreateInstance {
+				name: "Manual Java".into(),
+				game_version: "1.21.1".into(),
+				loader: crate::Loader::Vanilla,
+				loader_version: None,
+				memory_mb: 2048,
+				java_path: None,
+			})
+			.await
+			.unwrap();
+		instance.status = "ready".into();
+		e.save_instance(&instance).await.unwrap();
+		let metadata = e
+			.instance_path(&instance.id)
+			.unwrap()
+			.join(".ncreate-runtime");
+		std::fs::create_dir_all(&metadata).unwrap();
+		std::fs::write(
+			metadata.join("version.json"),
+			include_bytes!("../tests/fixtures/minecraft-1.21.1.json"),
+		)
+		.unwrap();
+		let path = root.path().join("Java with spaces");
+		for required in [17, 21] {
+			std::fs::write(
+				&path,
+				format!(
+					"#!/bin/sh\necho 'java.version = {required}.0.1' >&2\necho 'os.arch = {}' >&2\n",
+					std::env::consts::ARCH
+				),
+			)
+			.unwrap();
+			std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).unwrap();
+			let result = e.select_java(&instance.id, path.to_str().unwrap()).await;
+			if required == 17 {
+				assert!(result.unwrap_err().to_string().contains("Java 17"));
+				assert!(e.instance(&instance.id).await.unwrap().java_path.is_none());
+			} else {
+				assert_eq!(result.unwrap().major, 21);
+				assert_eq!(
+					e.instance(&instance.id).await.unwrap().java_path.as_deref(),
+					path.to_str()
+				);
+			}
+		}
+	}
+
 	#[tokio::test]
 	async fn cancelled_preparation_stays_cancelled() {
 		let root = tempfile::tempdir().unwrap();

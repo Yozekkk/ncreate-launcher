@@ -364,7 +364,7 @@ impl Engine {
 	pub(crate) async fn ensure_stopped(&self, id: &str) -> Result<()> {
 		let mut running = self.running.lock().await;
 		if let Some(child) = running.get_mut(id) {
-			if child.try_wait()?.is_none() {
+			if child.child.try_wait()?.is_none() {
 				return Err(Error::Invalid(
 					"stop the game before changing its files".into(),
 				));

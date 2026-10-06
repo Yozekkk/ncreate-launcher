@@ -33,12 +33,28 @@ pub enum Error {
 	Zip(#[from] zip::result::ZipError),
 }
 pub type Result<T> = std::result::Result<T, Error>;
+pub(crate) struct GameProcess {
+	pub child: tokio::process::Child,
+	pub native_alias: Option<tempfile::TempDir>,
+}
+impl Drop for GameProcess {
+	fn drop(&mut self) {
+		// Closing the launcher must not remove a path still used by a living game.
+		// Normal stop/exit removes the alias; an abrupt launcher exit leaves a tiny
+		// private directory for the OS temporary-directory cleanup.
+		if !matches!(self.child.try_wait(), Ok(Some(_)))
+			&& let Some(directory) = self.native_alias.take()
+		{
+			let _ = directory.keep();
+		}
+	}
+}
 pub struct Engine {
 	pub(crate) root: PathBuf,
 	pub(crate) pool: SqlitePool,
 	pub(crate) downloads: DownloadManager,
 	pub(crate) mutation: Mutex<()>,
-	pub(crate) running: Mutex<std::collections::HashMap<String, tokio::process::Child>>,
+	pub(crate) running: Mutex<std::collections::HashMap<String, GameProcess>>,
 	pub(crate) providers: Mutex<ManifestProviders>,
 }
 impl Engine {
@@ -141,7 +157,7 @@ impl Engine {
 	async fn refresh_running_status(&self, instance: &mut Instance) -> Result<()> {
 		let mut processes = self.running.lock().await;
 		if let Some(child) = processes.get_mut(&instance.id) {
-			if child.try_wait()?.is_none() {
+			if child.child.try_wait()?.is_none() {
 				instance.status = "running".into();
 			} else {
 				processes.remove(&instance.id);
