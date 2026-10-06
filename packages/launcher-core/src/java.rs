@@ -764,15 +764,20 @@ mod tests {
 		#[cfg(windows)]
 		{
 			let copied = root.path().join("Program Files/Eclipse Adoptium/jdk 21");
-			for entry in walkdir::WalkDir::new(&home) {
-				let entry = entry.unwrap();
-				let destination = copied.join(entry.path().strip_prefix(&home).unwrap());
-				if entry.file_type().is_dir() {
-					std::fs::create_dir_all(destination).unwrap();
-				} else {
-					std::fs::copy(entry.path(), destination).unwrap();
+			let mut directories = vec![(home.clone(), copied.clone())];
+			while let Some((source, destination)) = directories.pop() {
+				std::fs::create_dir_all(&destination).unwrap();
+				for entry in std::fs::read_dir(source).unwrap() {
+					let entry = entry.unwrap();
+					let target = destination.join(entry.file_name());
+					if entry.metadata().unwrap().is_dir() {
+						directories.push((entry.path(), target));
+					} else {
+						std::fs::copy(entry.path(), target).unwrap();
+					}
 				}
 			}
+
 			assert_eq!(
 				check_java(&copied.join("bin/java.exe"))
 					.await
